@@ -14,18 +14,18 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ===========================================
-# НАСТРОЙКИ – ЗАМЕНИТЕ НА СВОИ
+# НАСТРОЙКИ
 # ===========================================
 
 BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
 ADMIN_ID = 8457792268
-REQUIRED_CHANNEL = "@shakal_channel"  # или -1001234567890 (ID канала)
+REQUIRED_CHANNEL = "@shakal_channel"  # или ID -1001234567890
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
-VIP_CONTACT = "@sendholders"  # контакт для покупки VIP
+VIP_CONTACT = "@sendholders"
 
 # ===========================================
-# БАЗА ДАННЫХ
+# БАЗА ДАННЫХ (без admins)
 # ===========================================
 
 def init_db():
@@ -42,8 +42,6 @@ def init_db():
                   daily_attacks INTEGER DEFAULT 0,
                   last_attack_date TEXT,
                   bonus_date TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS admins
-                 (user_id INTEGER PRIMARY KEY)''')
     c.execute('''CREATE TABLE IF NOT EXISTS promo_codes
                  (code TEXT PRIMARY KEY,
                   max_uses INTEGER DEFAULT 1,
@@ -56,7 +54,7 @@ def init_db():
                   code TEXT,
                   used_at TEXT,
                   PRIMARY KEY (user_id, code))''')
-    c.execute("INSERT OR IGNORE INTO admins VALUES (?)", (ADMIN_ID,))
+    # Админа больше не добавляем в таблицу, но оставляем переменную ADMIN_ID для команд
     conn.commit()
     conn.close()
     print("✅ База данных готова")
@@ -123,7 +121,7 @@ def is_vip(user_id):
     row = get_user(user_id)
     if not row:
         return False
-    if not row[5]:
+    if not row[5]:  # is_vip
         return False
     until = row[6]
     if until and datetime.now().isoformat() > until:
@@ -131,28 +129,6 @@ def is_vip(user_id):
         update_user_field(user_id, "vip_until", None)
         return False
     return True
-
-def check_access(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT * FROM admins WHERE user_id = ?", (user_id,))
-    admin = c.fetchone()
-    conn.close()
-    return admin is not None
-
-def grant_access(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO admins VALUES (?)", (user_id,))
-    conn.commit()
-    conn.close()
-
-def revoke_access(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
 
 def get_user_stats(user_id):
     row = get_user(user_id)
@@ -253,7 +229,7 @@ async def check_subscription(user_id):
         return member.status in ["member", "administrator", "creator"]
     except Exception as e:
         print(f"Ошибка проверки подписки: {e}")
-        return True
+        return False  # если не удалось проверить – считаем не подписан
 
 # ===========================================
 # FSM СОСТОЯНИЯ
@@ -323,8 +299,6 @@ def back_menu():
 
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👥 Выдать доступ", callback_data="admin_grant")],
-        [InlineKeyboardButton(text="🚫 Забрать доступ", callback_data="admin_revoke")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin_create_promo")],
@@ -340,19 +314,15 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-async def ensure_access(message_or_callback, user_id, callback=None):
-    if not check_access(user_id):
-        if callback:
-            await callback.answer("⛔ Нет доступа", show_alert=True)
-        else:
-            await message_or_callback.answer("⛔ Нет доступа", parse_mode=ParseMode.HTML)
-        return False
+# Проверка подписки перед любым действием
+async def ensure_subscribed(message_or_callback, user_id, callback=None):
     if not await check_subscription(user_id):
         text = f"❌ Вы не подписаны на канал {REQUIRED_CHANNEL}!\nПодпишитесь и нажмите «Проверить подписку»."
         if callback:
             await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
             ]))
+            await callback.answer()
         else:
             await message_or_callback.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
@@ -368,11 +338,8 @@ async def ensure_access(message_or_callback, user_id, callback=None):
 async def start_command(message: aiogram_types.Message):
     user_id = message.from_user.id
     add_user(user_id, message.from_user.username, message.from_user.first_name)
-    if not check_access(user_id):
-        await message.answer("🔴 Этот бот только для крутых\n\nСтать крутым и получить доступ - @shklhelping")
-        return
     if not await check_subscription(user_id):
-        await message.answer(f"❌ Вы не подписаны на канал {REQUIRED_CHANNEL}!\nПодпишитесь и нажмите «Проверить подписку».",
+        await message.answer(f"🔴 Для использования бота подпишитесь на канал {REQUIRED_CHANNEL}!\n\nПосле подписки нажмите кнопку «Проверить подписку».",
                              reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                                  [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
                              ]))
@@ -382,23 +349,21 @@ async def start_command(message: aiogram_types.Message):
 @dp.callback_query(F.data == "check_sub")
 async def check_sub_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
-    if not check_access(user_id):
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
     if await check_subscription(user_id):
+        # Обновляем меню
         await callback.message.edit_text("✅ Вы подписаны! Добро пожаловать.", reply_markup=main_menu())
-        await callback.answer()
+        await callback.answer("Подписка подтверждена!", show_alert=True)
     else:
         await callback.message.edit_text(f"❌ Вы всё ещё не подписаны на {REQUIRED_CHANNEL}. Подпишитесь и нажмите снова.",
                                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                                               [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
                                           ]))
-        await callback.answer()
+        await callback.answer("Вы не подписаны", show_alert=True)
 
 @dp.callback_query(F.data == "claim_bonus")
 async def claim_bonus_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
-    if not await ensure_access(callback.message, user_id, callback):
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
     if not is_bonus_available(user_id):
         await callback.answer("❌ Вы уже получили бонус сегодня!", show_alert=True)
@@ -410,7 +375,7 @@ async def claim_bonus_callback(callback: aiogram_types.CallbackQuery):
 @dp.callback_query(F.data == "attack")
 async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    if not await ensure_access(callback.message, user_id, callback):
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
     limit = get_daily_limit(user_id)
     daily = get_daily_attacks(user_id)
@@ -432,7 +397,7 @@ async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMConte
 @dp.message(AttackState.waiting_username)
 async def attack_username(message: aiogram_types.Message, state: FSMContext):
     user_id = message.from_user.id
-    if not await ensure_access(message, user_id):
+    if not await ensure_subscribed(message, user_id):
         await state.clear()
         return
     target = message.text.replace('@', '').strip()
@@ -460,7 +425,7 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
 @dp.callback_query(F.data == "profile")
 async def profile_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
-    if not await ensure_access(callback.message, user_id, callback):
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
     attacks, joined = get_user_stats(user_id)
     vip = "✅ VIP" if is_vip(user_id) else "❌ Обычный"
@@ -491,7 +456,7 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
 @dp.message(Command("promo", "промо"))
 async def promo_command(message: aiogram_types.Message):
     user_id = message.from_user.id
-    if not await ensure_access(message, user_id):
+    if not await ensure_subscribed(message, user_id):
         return
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
@@ -508,7 +473,7 @@ async def promo_command(message: aiogram_types.Message):
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    if not await ensure_access(callback.message, user_id, callback):
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
     await callback.message.edit_text("Введите промокод:", reply_markup=back_menu())
     await state.set_state(PromoState.waiting_code)
@@ -517,7 +482,7 @@ async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSM
 @dp.message(PromoState.waiting_code)
 async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
     user_id = message.from_user.id
-    if not await ensure_access(message, user_id):
+    if not await ensure_subscribed(message, user_id):
         await state.clear()
         return
     code = message.text.strip()
@@ -533,10 +498,6 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
 @dp.callback_query(F.data == "back")
 async def back_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
-    if not check_access(user_id):
-        await callback.message.edit_text("🔴 Нет доступа")
-        await callback.answer()
-        return
     if not await check_subscription(user_id):
         await callback.message.edit_text(f"❌ Вы не подписаны на {REQUIRED_CHANNEL}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
@@ -547,7 +508,7 @@ async def back_callback(callback: aiogram_types.CallbackQuery):
     await callback.answer()
 
 # ===========================================
-# АДМИН-КОМАНДЫ
+# АДМИН-КОМАНДЫ (без выдачи доступа)
 # ===========================================
 
 @dp.message(Command("admin"))
@@ -556,22 +517,6 @@ async def admin_command(message: aiogram_types.Message):
         await message.answer("⛔ Нет доступа")
         return
     await message.answer("👑 АДМИН ПАНЕЛЬ", reply_markup=admin_menu())
-
-@dp.callback_query(F.data == "admin_grant")
-async def admin_grant_callback(callback: aiogram_types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-    await callback.message.edit_text("📝 ВЫДАЧА ДОСТУПА\n\nОтправьте /grant ID", reply_markup=back_menu())
-    await callback.answer()
-
-@dp.callback_query(F.data == "admin_revoke")
-async def admin_revoke_callback(callback: aiogram_types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-    await callback.message.edit_text("📝 ОТЗЫВ ДОСТУПА\n\nОтправьте /revoke ID", reply_markup=back_menu())
-    await callback.answer()
 
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats_callback(callback: aiogram_types.CallbackQuery):
@@ -679,37 +624,15 @@ async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=back_menu())
     await callback.answer()
 
-@dp.message(Command("grant"))
-async def grant_command(message: aiogram_types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    try:
-        target_id = int(message.text.split()[1])
-        grant_access(target_id)
-        await message.answer(f"✅ Доступ выдан {target_id}")
-    except:
-        await message.answer("❌ Использование: /grant ID")
-
-@dp.message(Command("revoke"))
-async def revoke_command(message: aiogram_types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    try:
-        target_id = int(message.text.split()[1])
-        revoke_access(target_id)
-        await message.answer(f"✅ Доступ отозван у {target_id}")
-    except:
-        await message.answer("❌ Использование: /revoke ID")
-
 # ===========================================
 # ЗАПУСК
 # ===========================================
 
 async def main():
     init_db()
-    print("🔰 Бот запущен (реальная подписка, промокоды через /промо)")
-    print(f"👑 Админ: {ADMIN_ID}")
+    print("🔰 Бот запущен (доступ только по подписке на канал)")
     print(f"📢 Канал: {REQUIRED_CHANNEL}")
+    print(f"👑 Админ: {ADMIN_ID}")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
