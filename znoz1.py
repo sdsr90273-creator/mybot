@@ -14,18 +14,17 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ===========================================
-# НАСТРОЙКИ — ЗАМЕНИ ТОЛЬКО ЭТИ ДВЕ СТРОКИ
+# НАСТРОЙКИ — ЗАМЕНИТЕ НА СВОИ
 # ===========================================
 
-BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"  # твой токен
-ADMIN_ID = 8457792268  # твой ID
-
-REQUIRED_CHANNEL = "https://t.me/+GgrPnutacI82OTNi"  # ссылка для отображения
-PROTECTED_BOT = "Shakalbekbot"  # защищённый бот
+BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
+ADMIN_ID = 8457792268
+REQUIRED_CHANNEL = "@shakal_channel"  # или -1001234567890 (ID канала)
+PROTECTED_BOT = "Shakalbekbot"        # бот под защитой
 DB_NAME = "shakal.db"
 
 # ===========================================
-# БАЗА ДАННЫХ
+# БАЗА ДАННЫХ (расширена полем bonus_date)
 # ===========================================
 
 def init_db():
@@ -40,7 +39,8 @@ def init_db():
                   is_vip INTEGER DEFAULT 0,
                   vip_until TEXT,
                   daily_attacks INTEGER DEFAULT 0,
-                  last_attack_date TEXT)''')
+                  last_attack_date TEXT,
+                  bonus_date TEXT)''')  # дата получения бонуса
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
     c.execute('''CREATE TABLE IF NOT EXISTS promo_codes
@@ -122,7 +122,7 @@ def is_vip(user_id):
     row = get_user(user_id)
     if not row:
         return False
-    if not row[5]:
+    if not row[5]:  # is_vip
         return False
     until = row[6]
     if until and datetime.now().isoformat() > until:
@@ -156,7 +156,7 @@ def revoke_access(user_id):
 def get_user_stats(user_id):
     row = get_user(user_id)
     if row:
-        return row[3], row[4]
+        return row[3], row[4]  # attacks, joined_date
     return 0, datetime.now().isoformat()
 
 def get_all_users():
@@ -175,6 +175,33 @@ def get_all_user_ids():
     conn.close()
     return [u[0] for u in users]
 
+# ----- Бонус -----
+def get_bonus_date(user_id):
+    row = get_user(user_id)
+    if row:
+        return row[9]  # bonus_date
+    return None
+
+def claim_bonus(user_id):
+    today = datetime.now().date().isoformat()
+    update_user_field(user_id, "bonus_date", today)
+
+def is_bonus_available(user_id):
+    bonus_date = get_bonus_date(user_id)
+    today = datetime.now().date().isoformat()
+    return bonus_date != today
+
+def get_daily_limit(user_id):
+    # если VIP – безлимит
+    if is_vip(user_id):
+        return float('inf')
+    # если бонус активирован сегодня – лимит 150, иначе 100
+    if is_bonus_available(user_id):
+        return 100  # бонус ещё не взят – базовый лимит
+    else:
+        return 150  # бонус уже взят – повышенный лимит
+
+# ----- Промокоды -----
 def create_promo(code, max_uses, duration_days, admin_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -215,11 +242,19 @@ def get_promo_stats():
     return rows
 
 # ===========================================
-# ПРОВЕРКА ПОДПИСКИ (ВСЕГДА True)
+# ПРОВЕРКА ПОДПИСКИ (РЕАЛЬНАЯ)
 # ===========================================
 
 async def check_subscription(user_id):
-    return True
+    if not REQUIRED_CHANNEL:
+        return True  # если канал не указан – пропускаем
+    try:
+        member = await bot.get_chat_member(REQUIRED_CHANNEL, user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except Exception as e:
+        # Если бот не может проверить (например, не админ), то пропускаем, чтобы не ломать бота
+        print(f"Ошибка проверки подписки: {e}")
+        return True
 
 # ===========================================
 # FSM СОСТОЯНИЯ
@@ -240,7 +275,7 @@ class CreatePromoState(StatesGroup):
     waiting_days = State()
 
 # ===========================================
-# ИМИТАЦИЯ АТАКИ
+# ИМИТАЦИЯ АТАКИ (БЕЗ РЕАЛЬНЫХ ЖАЛОБ)
 # ===========================================
 
 async def attack_bot(target_username):
@@ -278,6 +313,7 @@ def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❄️ Отправить шакалы", callback_data="attack")],
         [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
+        [InlineKeyboardButton(text="🎁 Бонус +50", callback_data="claim_bonus")],
         [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
     ])
 
@@ -360,16 +396,28 @@ async def check_sub_callback(callback: aiogram_types.CallbackQuery):
                                           ]))
         await callback.answer()
 
+@dp.callback_query(F.data == "claim_bonus")
+async def claim_bonus_callback(callback: aiogram_types.CallbackQuery):
+    user_id = callback.from_user.id
+    if not await ensure_access(callback.message, user_id, callback):
+        return
+    if not is_bonus_available(user_id):
+        await callback.answer("❌ Вы уже получили бонус сегодня!", show_alert=True)
+        return
+    claim_bonus(user_id)
+    await callback.message.edit_text("🎁 Вы получили +50 дополнительных жалоб на сегодня!\nТеперь ваш лимит – 150.", reply_markup=main_menu())
+    await callback.answer()
+
 @dp.callback_query(F.data == "attack")
 async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     if not await ensure_access(callback.message, user_id, callback):
         return
-    if not is_vip(user_id):
-        daily = get_daily_attacks(user_id)
-        if daily >= 100:
-            await callback.answer("❌ Дневной лимит (100) исчерпан. Купите VIP.", show_alert=True)
-            return
+    limit = get_daily_limit(user_id)
+    daily = get_daily_attacks(user_id)
+    if daily >= limit:
+        await callback.answer(f"❌ Дневной лимит ({limit}) исчерпан. Заберите бонус или купите VIP.", show_alert=True)
+        return
     last = attack_cooldown.get(user_id, datetime.min)
     if datetime.now() - last < timedelta(seconds=1.100):
         remain = 1.100 - (datetime.now() - last).total_seconds()
@@ -394,12 +442,12 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
         await message.answer(f"⛔ НЕЛЬЗЯ! Бот {PROTECTED_BOT} под защитой.", parse_mode=ParseMode.HTML)
         await state.clear()
         return
-    if not is_vip(user_id):
-        daily = get_daily_attacks(user_id)
-        if daily >= 100:
-            await message.answer("❌ Дневной лимит исчерпан. Купите VIP.", reply_markup=main_menu())
-            await state.clear()
-            return
+    limit = get_daily_limit(user_id)
+    daily = get_daily_attacks(user_id)
+    if daily >= limit:
+        await message.answer(f"❌ Дневной лимит ({limit}) исчерпан. Заберите бонус или купите VIP.", reply_markup=main_menu())
+        await state.clear()
+        return
     status_msg = await message.answer(f"🚀 Шакализируем @{target}...")
     asyncio.create_task(attack_background(target, user_id, status_msg, state))
     await state.clear()
@@ -412,6 +460,8 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     attacks, joined = get_user_stats(user_id)
     vip = "✅ VIP" if is_vip(user_id) else "❌ Обычный"
     daily = get_daily_attacks(user_id)
+    limit = get_daily_limit(user_id)
+    bonus_available = "Да" if is_bonus_available(user_id) else "Нет (уже получен)"
     row = get_user(user_id)
     username = row[1] if row else "нет"
     first_name = row[2] if row else "нет"
@@ -421,8 +471,9 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
             f"👤 Имя: {first_name}\n"
             f"📛 Юзернейм: @{username}\n"
             f"❄️ Всего атак: {attacks}\n"
-            f"📆 Сегодня: {daily}/100\n"
+            f"📆 Сегодня: {daily}/{limit if limit != float('inf') else '∞'}\n"
             f"🌟 Статус: {vip}\n"
+            f"🎁 Бонус сегодня: {bonus_available}\n"
             f"📅 Регистрация: {joined_date}")
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎫 Ввести промокод", callback_data="enter_promo")],
@@ -605,6 +656,8 @@ async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=back_menu())
     await callback.answer()
 
+# === Команды /grant и /revoke (работают через сообщения) ===
+
 @dp.message(Command("grant"))
 async def grant_command(message: aiogram_types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -614,7 +667,7 @@ async def grant_command(message: aiogram_types.Message):
         grant_access(target_id)
         await message.answer(f"✅ Доступ выдан {target_id}")
     except:
-        await message.answer("❌ /grant ID")
+        await message.answer("❌ Использование: /grant ID")
 
 @dp.message(Command("revoke"))
 async def revoke_command(message: aiogram_types.Message):
@@ -625,7 +678,7 @@ async def revoke_command(message: aiogram_types.Message):
         revoke_access(target_id)
         await message.answer(f"✅ Доступ отозван у {target_id}")
     except:
-        await message.answer("❌ /revoke ID")
+        await message.answer("❌ Использование: /revoke ID")
 
 # ===========================================
 # ЗАПУСК
@@ -633,8 +686,9 @@ async def revoke_command(message: aiogram_types.Message):
 
 async def main():
     init_db()
-    print("🔰 Бот запущен (имитация атак, можно атаковать людей)")
+    print("🔰 Бот запущен (реальная проверка подписки)")
     print(f"👑 Админ: {ADMIN_ID}")
+    print(f"📢 Канал: {REQUIRED_CHANNEL}")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
