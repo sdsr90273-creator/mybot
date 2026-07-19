@@ -1,11 +1,8 @@
-Python 3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)] on win32
-Enter "help" below or click "Help" above for more information.
 import os
 import asyncio
 import random
 import sqlite3
 from datetime import datetime, timedelta
-from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, F, types as aiogram_types
 from aiogram.enums import ParseMode
@@ -17,15 +14,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ===========================================
-# НАСТРОЙКИ — ТВОИ ДАННЫЕ
+# НАСТРОЙКИ — ЗАМЕНИ ТОЛЬКО ЭТИ ДВЕ СТРОКИ
 # ===========================================
 
-BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
-ADMIN_ID = 8457792268  # твой Telegram ID
-REQUIRED_CHANNEL = "https://t.me/+GgrPnutacI82OTNi"  # ссылка на канал (для отображения)
-PROTECTED_BOT = "Shakalbekbot"  # бот, который нельзя атаковать (можно изменить или убрать)
-LOG_CHANNEL_ID = None  # если есть — укажи ID, иначе оставь None
+BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"  # твой токен
+ADMIN_ID = 8457792268  # твой ID
 
+REQUIRED_CHANNEL = "https://t.me/+GgrPnutacI82OTNi"  # ссылка для отображения
+PROTECTED_BOT = "Shakalbekbot"  # защищённый бот
 DB_NAME = "shakal.db"
 
 # ===========================================
@@ -35,22 +31,18 @@ DB_NAME = "shakal.db"
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY,
                   username TEXT,
                   first_name TEXT,
-                  access_level TEXT DEFAULT 'user',
                   attacks INTEGER DEFAULT 0,
                   joined_date TEXT,
                   is_vip INTEGER DEFAULT 0,
                   vip_until TEXT,
                   daily_attacks INTEGER DEFAULT 0,
                   last_attack_date TEXT)''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS promo_codes
                  (code TEXT PRIMARY KEY,
                   max_uses INTEGER DEFAULT 1,
@@ -58,19 +50,15 @@ def init_db():
                   duration_days INTEGER DEFAULT 30,
                   created_by INTEGER,
                   created_at TEXT)''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS used_promos
                  (user_id INTEGER,
                   code TEXT,
                   used_at TEXT,
                   PRIMARY KEY (user_id, code))''')
-    
     c.execute("INSERT OR IGNORE INTO admins VALUES (?)", (ADMIN_ID,))
     conn.commit()
     conn.close()
-    print("База данных инициализирована")
-
-# === Функции для работы с пользователями ===
+    print("✅ База данных готова")
 
 def add_user(user_id, username, first_name):
     conn = sqlite3.connect(DB_NAME)
@@ -134,9 +122,9 @@ def is_vip(user_id):
     row = get_user(user_id)
     if not row:
         return False
-    if not row[6]:  # is_vip
+    if not row[5]:
         return False
-    until = row[7]
+    until = row[6]
     if until and datetime.now().isoformat() > until:
         update_user_field(user_id, "is_vip", 0)
         update_user_field(user_id, "vip_until", None)
@@ -168,7 +156,7 @@ def revoke_access(user_id):
 def get_user_stats(user_id):
     row = get_user(user_id)
     if row:
-        return row[4], row[5]  # attacks, joined_date
+        return row[3], row[4]
     return 0, datetime.now().isoformat()
 
 def get_all_users():
@@ -187,8 +175,6 @@ def get_all_user_ids():
     conn.close()
     return [u[0] for u in users]
 
-# === Промокоды ===
-
 def create_promo(code, max_uses, duration_days, admin_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -204,21 +190,21 @@ def use_promo(user_id, code):
     row = c.fetchone()
     if not row:
         conn.close()
-        return None, "Код не найден"
+        return None, "❌ Код не найден"
     max_uses, used_count, duration = row
     if used_count >= max_uses:
         conn.close()
-        return None, "Код уже исчерпан"
+        return None, "❌ Код уже исчерпан"
     c.execute("SELECT * FROM used_promos WHERE user_id = ? AND code = ?", (user_id, code))
     if c.fetchone():
         conn.close()
-        return None, "Вы уже использовали этот код"
+        return None, "❌ Вы уже использовали этот код"
     c.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (code,))
     c.execute("INSERT INTO used_promos (user_id, code, used_at) VALUES (?, ?, ?)", (user_id, code, datetime.now().isoformat()))
     set_vip(user_id, duration)
     conn.commit()
     conn.close()
-    return duration, f"VIP активирован на {duration} дней!"
+    return duration, f"✅ VIP активирован на {duration} дней!"
 
 def get_promo_stats():
     conn = sqlite3.connect(DB_NAME)
@@ -229,11 +215,10 @@ def get_promo_stats():
     return rows
 
 # ===========================================
-# ПРОВЕРКА ПОДПИСКИ (ВСЕГДА ВОЗВРАЩАЕТ True)
+# ПРОВЕРКА ПОДПИСКИ (ВСЕГДА True)
 # ===========================================
 
 async def check_subscription(user_id):
-    # Всегда возвращает True, чтобы имитировать успешную проверку
     return True
 
 # ===========================================
@@ -255,11 +240,10 @@ class CreatePromoState(StatesGroup):
     waiting_days = State()
 
 # ===========================================
-# ИМИТАЦИЯ АТАКИ (без Telethon)
+# ИМИТАЦИЯ АТАКИ
 # ===========================================
 
 async def attack_bot(target_username):
-    # Простая имитация: ждём пару секунд и возвращаем случайный успех
     await asyncio.sleep(random.uniform(2, 4))
     total = random.randint(50, 100)
     successful = int(total * random.uniform(0.7, 0.95))
@@ -291,12 +275,11 @@ async def attack_background(target_username, user_id, message, state: FSMContext
 # ===========================================
 
 def main_menu():
-    buttons = [
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❄️ Отправить шакалы", callback_data="attack")],
         [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
         [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    ])
 
 def back_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -315,14 +298,13 @@ def admin_menu():
     ])
 
 # ===========================================
-# ОБРАБОТЧИКИ
+# БОТ И ДИСПЕТЧЕР
 # ===========================================
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# Декоратор для проверки подписки и доступа
 async def ensure_access(message_or_callback, user_id, callback=None):
     if not check_access(user_id):
         if callback:
@@ -330,7 +312,6 @@ async def ensure_access(message_or_callback, user_id, callback=None):
         else:
             await message_or_callback.answer("⛔ Нет доступа", parse_mode=ParseMode.HTML)
         return False
-    # Проверка подписки (всегда возвращает True)
     if not await check_subscription(user_id):
         text = f"❌ Вы не подписаны на канал {REQUIRED_CHANNEL}!\nПодпишитесь и нажмите «Проверить подписку»."
         if callback:
@@ -344,12 +325,14 @@ async def ensure_access(message_or_callback, user_id, callback=None):
         return False
     return True
 
+# ===========================================
+# ОБРАБОТЧИКИ
+# ===========================================
+
 @dp.message(Command("start"))
 async def start_command(message: aiogram_types.Message):
     user_id = message.from_user.id
-    username = message.from_user.username
-    first_name = message.from_user.first_name
-    add_user(user_id, username, first_name)
+    add_user(user_id, message.from_user.username, message.from_user.first_name)
     if not check_access(user_id):
         await message.answer("🔴 Этот бот только для крутых\n\nСтать крутым и получить доступ - @shklhelping")
         return
@@ -382,11 +365,10 @@ async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMConte
     user_id = callback.from_user.id
     if not await ensure_access(callback.message, user_id, callback):
         return
-    # Проверка дневного лимита
     if not is_vip(user_id):
         daily = get_daily_attacks(user_id)
         if daily >= 100:
-            await callback.answer("❌ Дневной лимит (100 жалоб) исчерпан. Купите VIP для снятия лимита.", show_alert=True)
+            await callback.answer("❌ Дневной лимит (100) исчерпан. Купите VIP.", show_alert=True)
             return
     last = attack_cooldown.get(user_id, datetime.min)
     if datetime.now() - last < timedelta(seconds=1.100):
@@ -408,16 +390,10 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
         await message.answer("❌ Неверный username", reply_markup=main_menu())
         await state.clear()
         return
-
-    # === УБИРАЕМ ОГРАНИЧЕНИЕ НА ТОЛЬКО БОТОВ ===
-    # Разрешаем атаковать любые username (в том числе людей)
-    # Оставляем только защиту конкретного бота (если нужно)
     if target.lower() == PROTECTED_BOT.lower():
         await message.answer(f"⛔ НЕЛЬЗЯ! Бот {PROTECTED_BOT} под защитой.", parse_mode=ParseMode.HTML)
         await state.clear()
         return
-
-    # Проверяем лимит ещё раз
     if not is_vip(user_id):
         daily = get_daily_attacks(user_id)
         if daily >= 100:
@@ -473,11 +449,10 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
     code = message.text.strip()
     duration, msg = use_promo(user_id, code)
     if duration:
-        await message.answer(f"✅ {msg}\nVIP действует до {datetime.now()+timedelta(days=duration)}")
+        await message.answer(f"{msg}\nVIP действует до {datetime.now()+timedelta(days=duration)}")
     else:
-        await message.answer(f"❌ {msg}")
+        await message.answer(msg)
     await state.clear()
-    # Возвращаем в профиль
     fake_callback = aiogram_types.CallbackQuery(id="0", from_user=message.from_user, message=message, data="profile")
     await profile_callback(fake_callback)
 
@@ -503,8 +478,7 @@ async def back_callback(callback: aiogram_types.CallbackQuery):
 
 @dp.message(Command("admin"))
 async def admin_command(message: aiogram_types.Message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
+    if message.from_user.id != ADMIN_ID:
         await message.answer("⛔ Нет доступа")
         return
     await message.answer("👑 АДМИН ПАНЕЛЬ", reply_markup=admin_menu())
@@ -572,8 +546,6 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await status.edit_text(f"✅ Готово! Отправлено {sent}/{len(users)}", reply_markup=admin_menu())
     await state.clear()
 
-# === Промокоды (админ) ===
-
 @dp.callback_query(F.data == "admin_create_promo")
 async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
@@ -630,42 +602,40 @@ async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
         text = "📋 СПИСОК ПРОМОКОДОВ:\n\n"
         for code, max_uses, used, days, created in promos:
             text += f"• {code} — {used}/{max_uses} использовано, {days} дней VIP\n"
-...     await callback.message.edit_text(text, reply_markup=back_menu())
-...     await callback.answer()
-... 
-... # === Команды /grant и /revoke ===
-... 
-... @dp.message(Command("grant"))
-... async def grant_command(message: aiogram_types.Message):
-...     if message.from_user.id != ADMIN_ID:
-...         return
-...     try:
-...         target_id = int(message.text.split()[1])
-...         grant_access(target_id)
-...         await message.answer(f"✅ Доступ выдан {target_id}")
-...     except:
-...         await message.answer("❌ /grant ID")
-... 
-... @dp.message(Command("revoke"))
-... async def revoke_command(message: aiogram_types.Message):
-...     if message.from_user.id != ADMIN_ID:
-...         return
-...     try:
-...         target_id = int(message.text.split()[1])
-...         revoke_access(target_id)
-...         await message.answer(f"✅ Доступ отозван у {target_id}")
-...     except:
-...         await message.answer("❌ /revoke ID")
-... 
-... # ===========================================
-... # ЗАПУСК
-... # ===========================================
-... 
-... async def main():
-...     init_db()
-...     print("🔰 Бот запущен (режим имитации жалоб, атака на людей разрешена)")
-...     print(f"👑 Админ: {ADMIN_ID}")
-...     print(f"📢 Обязательный канал: {REQUIRED_CHANNEL}")
-...     await dp.start_polling(bot)
-... 
-... if __name__ == '__main__':
+    await callback.message.edit_text(text, reply_markup=back_menu())
+    await callback.answer()
+
+@dp.message(Command("grant"))
+async def grant_command(message: aiogram_types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        target_id = int(message.text.split()[1])
+        grant_access(target_id)
+        await message.answer(f"✅ Доступ выдан {target_id}")
+    except:
+        await message.answer("❌ /grant ID")
+
+@dp.message(Command("revoke"))
+async def revoke_command(message: aiogram_types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        target_id = int(message.text.split()[1])
+        revoke_access(target_id)
+        await message.answer(f"✅ Доступ отозван у {target_id}")
+    except:
+        await message.answer("❌ /revoke ID")
+
+# ===========================================
+# ЗАПУСК
+# ===========================================
+
+async def main():
+    init_db()
+    print("🔰 Бот запущен (имитация атак, можно атаковать людей)")
+    print(f"👑 Админ: {ADMIN_ID}")
+    await dp.start_polling(bot)
+
+if __name__ == '__main__':
+    asyncio.run(main())
