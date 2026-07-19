@@ -14,17 +14,18 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ===========================================
-# НАСТРОЙКИ — ЗАМЕНИТЕ НА СВОИ
+# НАСТРОЙКИ – ЗАМЕНИТЕ НА СВОИ
 # ===========================================
 
 BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
 ADMIN_ID = 8457792268
 REQUIRED_CHANNEL = "@shakal_channel"  # или -1001234567890 (ID канала)
-PROTECTED_BOT = "Shakalbekbot"        # бот под защитой
+PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
+VIP_CONTACT = "@sendholders"  # контакт для покупки VIP
 
 # ===========================================
-# БАЗА ДАННЫХ (расширена полем bonus_date)
+# БАЗА ДАННЫХ
 # ===========================================
 
 def init_db():
@@ -40,7 +41,7 @@ def init_db():
                   vip_until TEXT,
                   daily_attacks INTEGER DEFAULT 0,
                   last_attack_date TEXT,
-                  bonus_date TEXT)''')  # дата получения бонуса
+                  bonus_date TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS admins
                  (user_id INTEGER PRIMARY KEY)''')
     c.execute('''CREATE TABLE IF NOT EXISTS promo_codes
@@ -122,7 +123,7 @@ def is_vip(user_id):
     row = get_user(user_id)
     if not row:
         return False
-    if not row[5]:  # is_vip
+    if not row[5]:
         return False
     until = row[6]
     if until and datetime.now().isoformat() > until:
@@ -156,7 +157,7 @@ def revoke_access(user_id):
 def get_user_stats(user_id):
     row = get_user(user_id)
     if row:
-        return row[3], row[4]  # attacks, joined_date
+        return row[3], row[4]
     return 0, datetime.now().isoformat()
 
 def get_all_users():
@@ -179,7 +180,7 @@ def get_all_user_ids():
 def get_bonus_date(user_id):
     row = get_user(user_id)
     if row:
-        return row[9]  # bonus_date
+        return row[9]
     return None
 
 def claim_bonus(user_id):
@@ -192,25 +193,24 @@ def is_bonus_available(user_id):
     return bonus_date != today
 
 def get_daily_limit(user_id):
-    # если VIP – безлимит
     if is_vip(user_id):
         return float('inf')
-    # если бонус активирован сегодня – лимит 150, иначе 100
     if is_bonus_available(user_id):
-        return 100  # бонус ещё не взят – базовый лимит
+        return 100
     else:
-        return 150  # бонус уже взят – повышенный лимит
+        return 150
 
-# ----- Промокоды -----
+# ----- Промокоды (регистронезависимые) -----
 def create_promo(code, max_uses, duration_days, admin_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO promo_codes (code, max_uses, used_count, duration_days, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-              (code, max_uses, 0, duration_days, admin_id, datetime.now().isoformat()))
+              (code.lower(), max_uses, 0, duration_days, admin_id, datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
 def use_promo(user_id, code):
+    code = code.lower()
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute("SELECT max_uses, used_count, duration_days FROM promo_codes WHERE code = ?", (code,))
@@ -242,17 +242,16 @@ def get_promo_stats():
     return rows
 
 # ===========================================
-# ПРОВЕРКА ПОДПИСКИ (РЕАЛЬНАЯ)
+# ПРОВЕРКА ПОДПИСКИ (реальная)
 # ===========================================
 
 async def check_subscription(user_id):
     if not REQUIRED_CHANNEL:
-        return True  # если канал не указан – пропускаем
+        return True
     try:
         member = await bot.get_chat_member(REQUIRED_CHANNEL, user_id)
         return member.status in ["member", "administrator", "creator"]
     except Exception as e:
-        # Если бот не может проверить (например, не админ), то пропускаем, чтобы не ломать бота
         print(f"Ошибка проверки подписки: {e}")
         return True
 
@@ -275,7 +274,7 @@ class CreatePromoState(StatesGroup):
     waiting_days = State()
 
 # ===========================================
-# ИМИТАЦИЯ АТАКИ (БЕЗ РЕАЛЬНЫХ ЖАЛОБ)
+# ИМИТАЦИЯ АТАКИ
 # ===========================================
 
 async def attack_bot(target_username):
@@ -334,7 +333,7 @@ def admin_menu():
     ])
 
 # ===========================================
-# БОТ И ДИСПЕТЧЕР
+# БОТ
 # ===========================================
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -416,7 +415,10 @@ async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMConte
     limit = get_daily_limit(user_id)
     daily = get_daily_attacks(user_id)
     if daily >= limit:
-        await callback.answer(f"❌ Дневной лимит ({limit}) исчерпан. Заберите бонус или купите VIP.", show_alert=True)
+        await callback.answer(
+            f"❌ Дневной лимит ({limit}) исчерпан.\nКупите VIP у {VIP_CONTACT} для безлимита.",
+            show_alert=True
+        )
         return
     last = attack_cooldown.get(user_id, datetime.min)
     if datetime.now() - last < timedelta(seconds=1.100):
@@ -445,7 +447,10 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
     limit = get_daily_limit(user_id)
     daily = get_daily_attacks(user_id)
     if daily >= limit:
-        await message.answer(f"❌ Дневной лимит ({limit}) исчерпан. Заберите бонус или купите VIP.", reply_markup=main_menu())
+        await message.answer(
+            f"❌ Дневной лимит ({limit}) исчерпан.\nКупите VIP у {VIP_CONTACT} для безлимита.",
+            reply_markup=main_menu()
+        )
         await state.clear()
         return
     status_msg = await message.answer(f"🚀 Шакализируем @{target}...")
@@ -482,6 +487,24 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
+# ----- Промокоды через команду /promo или /промо -----
+@dp.message(Command("promo", "промо"))
+async def promo_command(message: aiogram_types.Message):
+    user_id = message.from_user.id
+    if not await ensure_access(message, user_id):
+        return
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("❌ Использование: /промо <код>")
+        return
+    code = args[1].strip()
+    duration, msg = use_promo(user_id, code)
+    if duration:
+        await message.answer(f"{msg}\nVIP действует до {datetime.now()+timedelta(days=duration)}")
+    else:
+        await message.answer(msg)
+
+# ----- Ввод промокода через кнопку (FSM) -----
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -656,8 +679,6 @@ async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=back_menu())
     await callback.answer()
 
-# === Команды /grant и /revoke (работают через сообщения) ===
-
 @dp.message(Command("grant"))
 async def grant_command(message: aiogram_types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -686,7 +707,7 @@ async def revoke_command(message: aiogram_types.Message):
 
 async def main():
     init_db()
-    print("🔰 Бот запущен (реальная проверка подписки)")
+    print("🔰 Бот запущен (реальная подписка, промокоды через /промо)")
     print(f"👑 Админ: {ADMIN_ID}")
     print(f"📢 Канал: {REQUIRED_CHANNEL}")
     await dp.start_polling(bot)
