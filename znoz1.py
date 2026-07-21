@@ -416,11 +416,8 @@ class BlacklistState(StatesGroup):
 class AdState(StatesGroup):
     waiting_text = State()
 
-class ColorState(StatesGroup):
-    waiting_color = State()  # не используется, цвет по кнопкам
-
 # ===========================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ КЛАВИАТУР
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ===========================================
 
 def get_next_target(current, targets):
@@ -459,7 +456,7 @@ async def ensure_subscribed(message_or_callback, user_id, lang, callback=None):
     return True
 
 # ===========================================
-# КЛАВИАТУРЫ МЕНЮ
+# КЛАВИАТУРЫ
 # ===========================================
 
 def main_menu(user_id):
@@ -648,19 +645,18 @@ async def set_color_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(f"✅ Цвет кнопок изменён на {color}.", reply_markup=main_menu(user_id))
     await callback.answer()
 
+# === АТАКА (доступна всем, но лимит для обычных) ===
 @dp.callback_query(F.data == "attack")
 async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = get_user_language(user_id)
     if not await ensure_subscribed(callback.message, user_id, lang, callback):
         return
-    if not is_vip(user_id):
-        await callback.answer("❌ У вас нет VIP!", show_alert=True)
-        return
+    # Проверяем лимит – для всех, но VIP безлимит
     limit = get_daily_limit(user_id)
     daily = get_daily_attacks(user_id)
     if daily >= limit:
-        await callback.answer(f"❌ Дневной лимит ({limit}) исчерпан.", show_alert=True)
+        await callback.answer(f"❌ Дневной лимит ({limit}) исчерпан. Купите VIP для безлимита.", show_alert=True)
         return
     await callback.message.edit_text("🎯 Введите username цели (без @):", reply_markup=back_menu())
     await state.set_state(AttackState.waiting_username)
@@ -686,6 +682,7 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
         await message.answer(f"⛔ {PROTECTED_BOT} под защитой.", reply_markup=main_menu(user_id))
         await state.clear()
         return
+    # Проверяем лимит ещё раз
     limit = get_daily_limit(user_id)
     daily = get_daily_attacks(user_id)
     if daily >= limit:
@@ -702,6 +699,7 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
     await message.answer(f"✅ Атака завершена! Отправлено {successful}/{total} жалоб на @{target}.", reply_markup=main_menu(user_id))
     await state.clear()
 
+# === ПРОФИЛЬ ===
 @dp.callback_query(F.data == "profile")
 async def profile_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -738,7 +736,7 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
             f"🎁 Бонус сегодня: {bonus_available}\n"
             f"📅 Регистрация: {joined_date}\n"
             f"👥 Рефералов: {refs} (бонусов: {bonus_atk} атак)\n"
-            f"🎯 След. цель: {ref_next_str}\n"
+            f"🎯 След. цель реф.: {ref_next_str}\n"
             f"🎫 Активаций промо: {promo_acts}\n"
             f"🎯 След. цель промо: {promo_next_str}\n"
             f"🎨 Цвет кнопок: {color}")
@@ -749,6 +747,7 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
+# === ПРОМОКОД (ввод) ===
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -777,10 +776,11 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
             await message.answer(f"✅ Вам начислено {result} атак!", reply_markup=main_menu(user_id))
     await state.clear()
 
+# Авто-ввод промокода (без команды)
 @dp.message(F.text, ~F.text.startswith('/'))
 async def handle_promo_text(message: aiogram_types.Message):
-    # Если пользователь просто ввел текст, проверим, не промокод ли это
     user_id = message.from_user.id
+    # Проверяем, не является ли текст промокодом (только если пользователь не в процессе создания промокода)
     code = message.text.strip()
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -797,6 +797,7 @@ async def handle_promo_text(message: aiogram_types.Message):
             else:
                 await message.answer(f"✅ Вам начислено {result} атак!", reply_markup=main_menu(user_id))
 
+# === РЕФЕРАЛЫ ===
 @dp.callback_query(F.data == "ref_system")
 async def ref_system_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -805,11 +806,14 @@ async def ref_system_callback(callback: aiogram_types.CallbackQuery):
         return
     ref_code = get_referral_code(user_id)
     if not ref_code:
-        await callback.message.edit_text("❌ Ошибка генерации ссылки.", reply_markup=back_menu())
+        await callback.message.edit_text("❌ Ошибка генерации ссылки. Попробуйте позже.", reply_markup=back_menu())
         await callback.answer()
         return
     me = await bot.get_me()
-    link = f"https://t.me/{me.username}?start=ref_{ref_code}"
+    if me.username:
+        link = f"https://t.me/{me.username}?start=ref_{ref_code}"
+    else:
+        link = f"https://t.me/{me.id}?start=ref_{ref_code}"  # fallback на ID
     refs, bonus_atk = get_referral_stats(user_id)
     vip_ref_status = "✅ Активен (VIP на 7 дней)" if is_vip(user_id) else "❌ Не активен"
     next_target = get_next_target(refs, REFERRAL_TARGETS)
@@ -839,7 +843,10 @@ async def copy_ref_link_callback(callback: aiogram_types.CallbackQuery):
         await callback.answer("Ошибка", show_alert=True)
         return
     me = await bot.get_me()
-    link = f"https://t.me/{me.username}?start=ref_{ref_code}"
+    if me.username:
+        link = f"https://t.me/{me.username}?start=ref_{ref_code}"
+    else:
+        link = f"https://t.me/{me.id}?start=ref_{ref_code}"
     await callback.message.answer(f"Ваша реферальная ссылка:\n`{link}`", parse_mode=ParseMode.MARKDOWN)
     await callback.answer()
 
@@ -916,7 +923,7 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await state.clear()
 
 # ===========================================
-# СОЗДАНИЕ ПРОМОКОДА ПО КНОПКАМ
+# СОЗДАНИЕ ПРОМОКОДА (с улучшенной обработкой чисел)
 # ===========================================
 
 @dp.callback_query(F.data == "admin_create_promo")
@@ -968,15 +975,11 @@ async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
         bonus = int(message.text.strip())
         if bonus <= 0:
             raise ValueError
-        data = await state.get_data()
-        code = data['code']
-        promo_type = data['type']
-        await message.answer("Введите количество использований (макс):", reply_markup=back_menu())
-        # Сохраняем бонус в состояние
         await state.update_data(bonus=bonus)
+        await message.answer("Введите количество использований (макс):", reply_markup=back_menu())
         await state.set_state(CreatePromoState.waiting_uses)
     except ValueError:
-        await message.answer("❌ Введите положительное целое число:")
+        await message.answer("❌ Введите положительное целое число (без букв и символов):")
 
 @dp.message(CreatePromoState.waiting_uses)
 async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
@@ -999,7 +1002,7 @@ async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
         await message.answer(f"✅ Промокод **{code}** создан!\nТип: {promo_type.capitalize()}\nИспользований: {uses}\nБонус: {bonus_str}", reply_markup=admin_menu())
         await state.clear()
     except ValueError:
-        await message.answer("❌ Введите положительное целое число:")
+        await message.answer("❌ Введите положительное целое число (без букв и символов):")
 
 @dp.callback_query(F.data == "admin_promo_list")
 async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
@@ -1195,7 +1198,7 @@ async def check_vip_expiry():
         await asyncio.sleep(86400)
 
 # ===========================================
-# ЯЗЫКИ (только кнопка)
+# ЯЗЫКИ (команда /lang)
 # ===========================================
 
 @dp.message(Command("lang"))
@@ -1227,7 +1230,7 @@ async def main():
     init_db()
     asyncio.create_task(check_vip_expiry())
     asyncio.create_task(weekly_broadcast())
-    print("🔰 Бот запущен (все функции исправлены)")
+    print("🔰 Бот запущен (все функции исправлены, атака доступна всем с лимитом 100)")
     print(f"👑 Админ: {ADMIN_ID}")
     print(f"💰 Цена VIP: {VIP_PRICE}")
     await dp.start_polling(bot)
