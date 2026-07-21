@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ===========================================
-# НАСТРОЙКИ (замените при необходимости)
+# НАСТРОЙКИ
 # ===========================================
 
 BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
@@ -29,7 +29,7 @@ VIP_PRICE = "200 ₽"
 WEEKLY_BROADCAST_ENABLED = True
 
 # ===========================================
-# ТЕКСТЫ (только русский для краткости, остальные аналогичны)
+# ТЕКСТЫ (только русский, остальные не нужны для краткости)
 # ===========================================
 
 TEXTS = {
@@ -87,9 +87,7 @@ TEXTS = {
         'ad_empty': "Реклама не настроена.",
         'admin_settings': "⚙️ НАСТРОЙКИ\n\nРекламный текст:\n{ad_text}\n\nАвто-рассылка: {broadcast_status}",
         'broadcast_toggle': "Авто-рассылка переключена на {status}.",
-    },
-    # en, uk, kk, uz – в полной версии они присутствуют, для краткости здесь опущены,
-    # но в реальном файле они есть (можно скопировать из предыдущих версий).
+    }
 }
 
 # ===========================================
@@ -153,10 +151,6 @@ def init_db():
     conn.commit()
     conn.close()
     print("✅ База данных готова")
-
-# ===========================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ===========================================
 
 def get_user(user_id):
     conn = sqlite3.connect(DB_NAME)
@@ -342,7 +336,6 @@ def create_promo(code, max_uses, duration_days, attacks_bonus, promo_type, admin
               (code.lower(), max_uses, 0, duration_days, attacks_bonus, promo_type, admin_id, datetime.now().isoformat()))
     conn.commit()
     conn.close()
-    print(f"✅ Промокод {code} создан")
 
 def use_promo(user_id, code):
     code = code.lower()
@@ -435,7 +428,7 @@ def is_in_blacklist(username):
     return row is not None
 
 # ===========================================
-# ПРОВЕРКА ПОДПИСКИ
+# ПРОВЕРКА ПОДПИСКИ (если нужна)
 # ===========================================
 
 async def check_subscription(user_id):
@@ -469,9 +462,6 @@ class CreatePromoState(StatesGroup):
 class BlacklistState(StatesGroup):
     waiting_add = State()
     waiting_remove = State()
-
-class ChangeColorState(StatesGroup):
-    waiting_color = State()
 
 class AdState(StatesGroup):
     waiting_text = State()
@@ -513,7 +503,6 @@ async def attack_background(target_username, user_id, message, state, lang):
 # ===========================================
 
 def main_menu(lang='ru', user_id=None):
-    color = get_button_color(user_id) if user_id else 'blue'
     buttons = [
         [InlineKeyboardButton(text="❄️ Отправить шакалы", callback_data="attack")],
         [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
@@ -559,10 +548,6 @@ def color_choose_keyboard():
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
-
-# ===========================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ===========================================
 
 async def get_lang(user_id):
     return get_user_language(user_id)
@@ -996,9 +981,8 @@ async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     code = message.text.strip()
-    # Проверка: только латинские буквы и цифры
     if not re.match(r'^[a-zA-Z0-9]+$', code):
-        await message.answer("❌ Код должен содержать только латинские буквы и цифры (без пробелов и спецсимволов). Попробуйте ещё раз:")
+        await message.answer("❌ Код должен содержать только латинские буквы и цифры. Попробуйте ещё раз:")
         return
     await state.update_data(code=code)
     await message.answer("Выберите тип:\n1 - VIP\n2 - Атаки")
