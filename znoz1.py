@@ -26,7 +26,6 @@ DB_NAME = "shakal.db"
 VIP_CONTACT = "@sendholders"
 VIP_PRICE = "200 ₽"
 
-# Цели для рефералов и промо-активаций
 REFERRAL_TARGETS = [1, 3, 5, 10, 20]
 REFERRAL_BONUSES = [50, 100, 200, 500, 1000]
 PROMO_TARGETS = [1, 3, 5, 10, 20]
@@ -40,6 +39,9 @@ VIP_DAYS_FOR_GOAL = 7
 def clean_number_input(text: str) -> str:
     """Удаляет все символы, кроме цифр, и убирает пробелы."""
     text = text.strip()
+    # Если начинается со слеша, убираем его
+    if text.startswith('/'):
+        text = text[1:]
     cleaned = ''.join(filter(str.isdigit, text))
     return cleaned
 
@@ -145,10 +147,8 @@ def add_user(user_id, username, first_name, referrer_id=None):
         c.execute("UPDATE users SET referrals_count = referrals_count + 1 WHERE user_id = ?", (referrer_id,))
         c.execute("INSERT INTO referrals (referrer_id, referred_id, joined_at) VALUES (?, ?, ?)",
                   (referrer_id, user_id, datetime.now().isoformat()))
-        # Базовый бонус +20
         c.execute("UPDATE users SET attacks = attacks + 20 WHERE user_id = ?", (referrer_id,))
         c.execute("UPDATE users SET referral_attacks_bonus = referral_attacks_bonus + 20 WHERE user_id = ?", (referrer_id,))
-        # Проверяем цели
         c.execute("SELECT referrals_count FROM users WHERE user_id = ?", (referrer_id,))
         refs = c.fetchone()[0]
         for i, target in enumerate(REFERRAL_TARGETS):
@@ -287,7 +287,6 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-# Промокоды
 def create_promo(code, max_uses, duration_days, attacks_bonus, promo_type, admin_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -423,7 +422,7 @@ class AdState(StatesGroup):
     waiting_text = State()
 
 # ===========================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ КЛАВИАТУР
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ===========================================
 
 def get_next_target(current, targets):
@@ -919,7 +918,7 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await state.clear()
 
 # ===========================================
-# СОЗДАНИЕ ПРОМОКОДА (все шаги с очисткой чисел и кнопками)
+# СОЗДАНИЕ ПРОМОКОДА (исправлены проверки чисел)
 # ===========================================
 
 @dp.callback_query(F.data == "admin_create_promo")
@@ -967,11 +966,13 @@ async def promo_type_attacks(callback: aiogram_types.CallbackQuery, state: FSMCo
 async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
-    if message.text.startswith('/'):
+    text = message.text.strip()
+    # Если это команды отмены, сбрасываем
+    if text in ['/cancel', '/admin']:
         await message.answer("❌ Создание промокода отменено.", reply_markup=admin_menu())
         await state.clear()
         return
-    cleaned = clean_number_input(message.text)
+    cleaned = clean_number_input(text)
     if not cleaned:
         await message.answer("❌ Введите положительное целое число (только цифры):")
         return
@@ -989,11 +990,12 @@ async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
 async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
-    if message.text.startswith('/'):
+    text = message.text.strip()
+    if text in ['/cancel', '/admin']:
         await message.answer("❌ Создание промокода отменено.", reply_markup=admin_menu())
         await state.clear()
         return
-    cleaned = clean_number_input(message.text)
+    cleaned = clean_number_input(text)
     if not cleaned:
         await message.answer("❌ Введите положительное целое число (только цифры):")
         return
