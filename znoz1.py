@@ -40,6 +40,7 @@ def clean_number_input(text: str) -> str:
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    # Создаём таблицу пользователей, если её нет
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         username TEXT,
@@ -60,6 +61,23 @@ def init_db():
         button_color TEXT DEFAULT 'blue',
         promo_activations INTEGER DEFAULT 0
     )''')
+    # Добавляем недостающие колонки, если они уже есть – пропускаем
+    columns_to_add = {
+        'button_color': 'TEXT DEFAULT "blue"',
+        'promo_activations': 'INTEGER DEFAULT 0',
+        'is_vip_lifetime': 'INTEGER DEFAULT 0',
+        'referral_code': 'TEXT',
+        'referrer_id': 'INTEGER',
+        'referrals_count': 'INTEGER DEFAULT 0',
+        'referral_attacks_bonus': 'INTEGER DEFAULT 0',
+        'language': 'TEXT DEFAULT "ru"'
+    }
+    c.execute("PRAGMA table_info(users)")
+    existing_columns = [row[1] for row in c.fetchall()]
+    for col, col_type in columns_to_add.items():
+        if col not in existing_columns:
+            c.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+    # Остальные таблицы создаются так же
     c.execute('''CREATE TABLE IF NOT EXISTS targets (
         user_id INTEGER,
         target_username TEXT,
@@ -101,7 +119,7 @@ def init_db():
     )''')
     conn.commit()
     conn.close()
-    print("✅ База данных готова")
+    print("✅ База данных обновлена (добавлены недостающие колонки)")
 
 # ---------- ОСНОВНЫЕ ФУНКЦИИ РАБОТЫ С БД ----------
 def get_user(user_id):
@@ -111,7 +129,6 @@ def get_user(user_id):
     row = c.fetchone()
     conn.close()
     return row
-
 def update_user_field(user_id, field, value):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
