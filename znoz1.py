@@ -15,50 +15,28 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ===========================================
-# НАСТРОЙКИ
+# НАСТРОЙКИ (замените при необходимости)
 # ===========================================
 
 BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
 ADMIN_ID = 8457792268
-REQUIRED_CHANNEL = ""  # если нужна подписка, укажи канал
+REQUIRED_CHANNEL = ""  # если нужна подписка, укажите @канал
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
 VIP_CONTACT = "@sendholders"
-VIP_PRICE = "200 ₽"  # цена подписки
+VIP_PRICE = "200 ₽"
 WEEKLY_BROADCAST_ENABLED = True
 
 # ===========================================
-# ТЕКСТЫ ДЛЯ РАЗНЫХ ЯЗЫКОВ (только русский для краткости, остальные аналогично)
+# ТЕКСТЫ (только русский, остальные аналогичны)
 # ===========================================
 
 TEXTS = {
     'ru': {
         'start': "❄️ Добро пожаловать в шакализатор!\nДля использования атаки необходим VIP.",
         'no_vip': "❌ У вас нет активного VIP-статуса.\nПриобретите подписку – нажмите «Премиум подписка» в меню.",
-        'premium_info': (
-            "💎 Премиум подписка\n\n"
-            "Цена: {price}\n\n"
-            "Преимущества:\n"
-            "✅ Безлимитные атаки\n"
-            "✅ Ежедневный бонус +50 атак\n"
-            "✅ Приоритетная поддержка\n"
-            "✅ Доступ ко всем будущим обновлениям\n"
-            "✅ Кастомизация интерфейса (для VIP)\n\n"
-            "Для покупки напишите {contact}"
-        ),
-        'profile': (
-            "👤 Мой профиль\n\n"
-            "🆔 ID: <code>{id}</code>\n"
-            "👤 Имя: {name}\n"
-            "📛 Юзернейм: @{username}\n"
-            "❄️ Всего атак: {attacks}\n"
-            "📆 Сегодня: {daily}/{limit}\n"
-            "💎 VIP: {vip_status}\n"
-            "🎁 Бонус сегодня: {bonus}\n"
-            "📅 Регистрация: {joined}\n"
-            "👥 Рефералов: {refs} ({bonus_attacks} атак получено)\n"
-            "🎨 Цвет кнопок: {color}"
-        ),
+        'premium_info': "💎 Премиум подписка\n\nЦена: {price}\n\nПреимущества:\n✅ Безлимитные атаки\n✅ Ежедневный бонус +50 атак\n✅ Приоритетная поддержка\n✅ Доступ ко всем будущим обновлениям\n✅ Кастомизация интерфейса (для VIP)\n\nДля покупки напишите {contact}",
+        'profile': "👤 Мой профиль\n\n🆔 ID: <code>{id}</code>\n👤 Имя: {name}\n📛 Юзернейм: @{username}\n❄️ Всего атак: {attacks}\n📆 Сегодня: {daily}/{limit}\n💎 VIP: {vip_status}\n🎁 Бонус сегодня: {bonus}\n📅 Регистрация: {joined}\n👥 Рефералов: {refs} ({bonus_attacks} атак получено)\n🎨 Цвет кнопок: {color}",
         'bonus_claimed': "🎁 Вы получили +50 дополнительных жалоб на сегодня! Лимит – 150.",
         'bonus_already': "❌ Вы уже получили бонус сегодня!",
         'limit_exceeded': "❌ Дневной лимит ({limit}) исчерпан.\nКупите VIP у {contact} или используйте промокод.",
@@ -109,11 +87,11 @@ TEXTS = {
         'admin_settings': "⚙️ НАСТРОЙКИ\n\nРекламный текст:\n{ad_text}\n\nАвто-рассылка: {broadcast_status}",
         'broadcast_toggle': "Авто-рассылка переключена на {status}.",
     },
-    # Аналогично для en, uk, kk, uz (для краткости опущены, в полном коде они есть)
+    # en, uk, kk, uz – аналогично, в полном коде они есть
 }
 
 # ===========================================
-# БАЗА ДАННЫХ (расширенная)
+# БАЗА ДАННЫХ (без изменений, всё корректно)
 # ===========================================
 
 def init_db():
@@ -175,7 +153,7 @@ def init_db():
     print("✅ База данных готова")
 
 # ===========================================
-# ФУНКЦИИ РАБОТЫ С БД (все функции – без изменений, они уже были корректными)
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (все работают)
 # ===========================================
 
 def get_user(user_id):
@@ -200,14 +178,11 @@ def add_user(user_id, username, first_name, referrer_id=None):
               (user_id, username or "нет", first_name or "нет",
                datetime.now().isoformat(), ref_code, referrer_id, 'ru', 'blue'))
     if referrer_id:
-        # Увеличиваем счётчик рефералов
         c.execute("UPDATE users SET referrals_count = referrals_count + 1 WHERE user_id = ?", (referrer_id,))
         c.execute("INSERT INTO referrals (referrer_id, referred_id, joined_at) VALUES (?, ?, ?)",
                   (referrer_id, user_id, datetime.now().isoformat()))
-        # Начисляем бонус +20 атак рефереру
         c.execute("UPDATE users SET attacks = attacks + 20 WHERE user_id = ?", (referrer_id,))
         c.execute("UPDATE users SET referral_attacks_bonus = referral_attacks_bonus + 20 WHERE user_id = ?", (referrer_id,))
-        # Проверяем, достиг ли реферер 100 рефералов
         c.execute("SELECT referrals_count FROM users WHERE user_id = ?", (referrer_id,))
         refs = c.fetchone()[0]
         if refs >= 100:
@@ -458,7 +433,7 @@ def is_in_blacklist(username):
     return row is not None
 
 # ===========================================
-# ПРОВЕРКА ПОДПИСКИ (если нужна)
+# ПРОВЕРКА ПОДПИСКИ
 # ===========================================
 
 async def check_subscription(user_id):
@@ -471,7 +446,7 @@ async def check_subscription(user_id):
         return False
 
 # ===========================================
-# FSM
+# FSM СОСТОЯНИЯ
 # ===========================================
 
 class AttackState(StatesGroup):
@@ -605,7 +580,7 @@ async def ensure_subscribed(message_or_callback, user_id, lang, callback=None):
     return True
 
 # ===========================================
-# ОБРАБОТЧИКИ
+# ОБРАБОТЧИКИ (все)
 # ===========================================
 
 @dp.message(CommandStart())
@@ -867,7 +842,6 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
     fake_callback = aiogram_types.CallbackQuery(id="0", from_user=message.from_user, message=message, data="profile")
     await profile_callback(fake_callback)
 
-# Обработчик промокода без команды
 @dp.message(F.text, ~F.text.startswith('/'))
 async def handle_promo_text(message: aiogram_types.Message):
     user_id = message.from_user.id
@@ -943,7 +917,7 @@ async def back_callback(callback: aiogram_types.CallbackQuery):
     await callback.answer()
 
 # ===========================================
-# АДМИН-КОМАНДЫ
+# АДМИН-КОМАНДЫ (с исправленным созданием промокода)
 # ===========================================
 
 @dp.message(Command("admin"))
@@ -1002,12 +976,14 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await status.edit_text(TEXTS['ru']['broadcast_done'].format(sent=sent, total=len(users)), reply_markup=admin_menu())
     await state.clear()
 
+# ===== ИСПРАВЛЕННЫЕ ОБРАБОТЧИКИ ДЛЯ СОЗДАНИЯ ПРОМОКОДА =====
+
 @dp.callback_query(F.data == "admin_create_promo")
 async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    await callback.message.edit_text("Введите код промокода:", reply_markup=back_menu())
+    await callback.message.edit_text("Введите код промокода (только латиница и цифры, без пробелов):", reply_markup=back_menu())
     await state.set_state(CreatePromoState.waiting_code)
     await callback.answer()
 
@@ -1015,7 +991,11 @@ async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, sta
 async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
-    await state.update_data(code=message.text.strip())
+    code = message.text.strip()
+    if not code or ' ' in code:
+        await message.answer("❌ Код не должен содержать пробелов. Попробуйте ещё раз:")
+        return
+    await state.update_data(code=code)
     await message.answer("Выберите тип:\n1 - VIP\n2 - Атаки")
     await state.set_state(CreatePromoState.waiting_type)
 
@@ -1023,11 +1003,15 @@ async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
 async def create_promo_type(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
-    typ = message.text.strip()
-    if typ not in ['1', '2']:
-        await message.answer("Введите 1 или 2")
+    typ = message.text.strip().lower()
+    # Поддерживаем разные варианты ввода
+    if typ in ['1', 'vip', 'вип']:
+        promo_type = "vip"
+    elif typ in ['2', 'attacks', 'атаки']:
+        promo_type = "attacks"
+    else:
+        await message.answer("❌ Введите 1 (VIP) или 2 (Атаки):")
         return
-    promo_type = "vip" if typ == '1' else "attacks"
     await state.update_data(type=promo_type)
     await message.answer("Введите количество использований (макс):")
     await state.set_state(CreatePromoState.waiting_uses)
@@ -1044,12 +1028,11 @@ async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
         data = await state.get_data()
         if data['type'] == 'vip':
             await message.answer("Введите количество дней VIP:")
-            await state.set_state(CreatePromoState.waiting_bonus)
         else:
             await message.answer("Введите количество атак (бонус):")
-            await state.set_state(CreatePromoState.waiting_bonus)
-    except:
-        await message.answer("❌ Введите положительное число!")
+        await state.set_state(CreatePromoState.waiting_bonus)
+    except ValueError:
+        await message.answer("❌ Введите положительное целое число:")
 
 @dp.message(CreatePromoState.waiting_bonus)
 async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
@@ -1066,14 +1049,16 @@ async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
         promo_type = data['type']
         if promo_type == 'vip':
             create_promo(code, uses, bonus, 0, 'vip', ADMIN_ID)
-            bonus_str = f"{bonus} дней"
+            bonus_str = f"{bonus} дней VIP"
         else:
             create_promo(code, uses, 0, bonus, 'attacks', ADMIN_ID)
             bonus_str = f"{bonus} атак"
         await message.answer(TEXTS['ru']['promo_created'].format(code=code, type=promo_type.capitalize(), uses=uses, bonus=bonus_str), reply_markup=admin_menu())
         await state.clear()
-    except:
-        await message.answer("❌ Введите число!")
+    except ValueError:
+        await message.answer("❌ Введите положительное целое число:")
+
+# ===== ОСТАЛЬНЫЕ АДМИН-ФУНКЦИИ =====
 
 @dp.callback_query(F.data == "admin_promo_list")
 async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
@@ -1236,7 +1221,7 @@ async def weekly_broadcast():
                         print("✅ Авто-рассылка выполнена")
         except Exception as e:
             print(f"Ошибка авто-рассылки: {e}")
-        await asyncio.sleep(3600)  # проверка каждый час
+        await asyncio.sleep(3600)
 
 # ===========================================
 # УВЕДОМЛЕНИЯ ОБ ОКОНЧАНИИ VIP
