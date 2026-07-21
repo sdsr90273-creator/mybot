@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# ---------- НАСТРОЙКИ ----------
+# ========== НАСТРОЙКИ ==========
 BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
 ADMIN_ID = 8457792268
 REQUIRED_CHANNEL = ""  # оставьте пустым, если не нужна подписка
@@ -23,10 +23,9 @@ DB_NAME = "shakal.db"
 VIP_CONTACT = "@sendholders"
 VIP_PRICE = 2500  # энергия для покупки VIP навсегда
 
-# Цели для рефералов и промо-активаций
 REFERRAL_TARGETS = [1, 3, 5, 10, 20]
-REFERRAL_BONUSES_ATTACKS = [50, 100, 200, 500, 1000]      # бонус в атаках
-REFERRAL_BONUSES_ENERGY = [20, 40, 80, 200, 400]          # бонус в энергии
+REFERRAL_BONUSES_ATTACKS = [50, 100, 200, 500, 1000]
+REFERRAL_BONUSES_ENERGY = [20, 40, 80, 200, 400]
 PROMO_TARGETS = [1, 3, 5, 10, 20]
 PROMO_BONUSES_ATTACKS = [50, 100, 200, 500, 1000]
 PROMO_BONUSES_ENERGY = [20, 40, 80, 200, 400]
@@ -36,26 +35,25 @@ DAILY_BONUS_ENERGY = 10
 REFERRAL_ATTACKS_BONUS = 20
 REFERRAL_ENERGY_BONUS = 20
 START_ENERGY = 100
-START_ATTACKS_LIMIT = 100
 WEEKLY_BROADCAST_ENABLED = True
 
-# ---------- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ЧИСЕЛ ----------
+# ========== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ==========
 def clean_number_input(text: str) -> str:
     text = text.strip()
     if text.startswith('/'):
         text = text[1:]
     return ''.join(filter(str.isdigit, text))
 
-# ---------- БАЗА ДАННЫХ ----------
+# ========== БАЗА ДАННЫХ ==========
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
+    c.execute(f'''CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         username TEXT,
         first_name TEXT,
         attacks INTEGER DEFAULT 0,
-        energy INTEGER DEFAULT ?,
+        energy INTEGER DEFAULT {START_ENERGY},
         joined_date TEXT,
         is_vip INTEGER DEFAULT 0,
         vip_until TEXT,
@@ -72,7 +70,7 @@ def init_db():
         is_vip_lifetime INTEGER DEFAULT 0,
         button_color TEXT DEFAULT 'blue',
         promo_activations INTEGER DEFAULT 0
-    )''', (START_ENERGY,))
+    )''')
     c.execute('''CREATE TABLE IF NOT EXISTS targets (
         user_id INTEGER,
         target_username TEXT,
@@ -93,7 +91,7 @@ def init_db():
         duration_days INTEGER DEFAULT 0,
         attacks_bonus INTEGER DEFAULT 0,
         energy_bonus INTEGER DEFAULT 0,
-        type TEXT DEFAULT 'vip',          -- 'vip', 'attacks', 'energy'
+        type TEXT DEFAULT 'vip',
         created_by INTEGER,
         created_at TEXT
     )''')
@@ -117,7 +115,7 @@ def init_db():
     conn.close()
     print("✅ База данных готова")
 
-# ---------- ФУНКЦИИ РАБОТЫ С БД ----------
+# ========== ФУНКЦИИ РАБОТЫ С БД ==========
 def get_user(user_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -148,7 +146,6 @@ def add_user(user_id, username, first_name, referrer_id=None):
         (user_id, username or "нет", first_name or "нет",
          datetime.now().isoformat(), ref_code, referrer_id, 'ru', 'blue', 0, START_ENERGY))
     if referrer_id:
-        # награда рефереру (атаки и энергия)
         c.execute("UPDATE users SET referrals_count = referrals_count + 1 WHERE user_id = ?", (referrer_id,))
         c.execute("INSERT INTO referrals (referrer_id, referred_id, joined_at) VALUES (?, ?, ?)",
                   (referrer_id, user_id, datetime.now().isoformat()))
@@ -156,7 +153,6 @@ def add_user(user_id, username, first_name, referrer_id=None):
         c.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (REFERRAL_ENERGY_BONUS, referrer_id))
         c.execute("UPDATE users SET referral_attacks_bonus = referral_attacks_bonus + ? WHERE user_id = ?", (REFERRAL_ATTACKS_BONUS, referrer_id))
         c.execute("UPDATE users SET referral_energy_bonus = referral_energy_bonus + ? WHERE user_id = ?", (REFERRAL_ENERGY_BONUS, referrer_id))
-        # проверка целей рефералов
         c.execute("SELECT referrals_count FROM users WHERE user_id = ?", (referrer_id,))
         refs = c.fetchone()[0]
         for i, target in enumerate(REFERRAL_TARGETS):
@@ -210,7 +206,7 @@ def add_energy(user_id, amount):
 
 def get_energy(user_id):
     row = get_user(user_id)
-    return row[4] if row else 0  # energy находится на индексе 4
+    return row[4] if row else 0
 
 def set_vip(user_id, days):
     if days == -1:
@@ -226,9 +222,9 @@ def set_vip(user_id, days):
 def is_vip(user_id):
     row = get_user(user_id)
     if not row: return False
-    if row[6] == 1:  # is_vip (индекс 6)
-        if row[7] is None:  # vip_until
-            return row[15] == 1  # is_vip_lifetime
+    if row[6] == 1:
+        if row[7] is None:
+            return row[15] == 1
         if datetime.now().isoformat() > row[7]:
             update_user_field(user_id, "is_vip", 0)
             update_user_field(user_id, "vip_until", None)
@@ -239,11 +235,10 @@ def is_vip(user_id):
 def get_daily_limit(user_id):
     return float('inf') if is_vip(user_id) else 100
 
-# Бонус (атаки и энергия)
 def can_claim_daily_bonus(user_id):
     row = get_user(user_id)
     if not row: return True
-    bonus_date = row[9]   # bonus_date
+    bonus_date = row[9]
     today = datetime.now().date().isoformat()
     return bonus_date != today
 
@@ -254,7 +249,7 @@ def claim_daily_bonus(user_id):
 def can_claim_energy_bonus(user_id):
     row = get_user(user_id)
     if not row: return True
-    energy_date = row[10]   # energy_bonus_date
+    energy_date = row[10]
     today = datetime.now().date().isoformat()
     return energy_date != today
 
@@ -262,10 +257,9 @@ def claim_energy_bonus(user_id):
     today = datetime.now().date().isoformat()
     update_user_field(user_id, "energy_bonus_date", today)
 
-# Рефералы
 def get_referral_code(user_id):
     row = get_user(user_id)
-    return row[12] if row else None  # referral_code
+    return row[12] if row else None
 
 def get_referral_stats(user_id):
     row = get_user(user_id)
@@ -275,7 +269,7 @@ def get_referral_stats(user_id):
 
 def get_promo_activations(user_id):
     row = get_user(user_id)
-    return row[17] if row else 0  # promo_activations
+    return row[17] if row else 0
 
 def get_button_color(user_id):
     row = get_user(user_id)
@@ -286,7 +280,7 @@ def set_button_color(user_id, color):
 
 def get_user_language(user_id):
     row = get_user(user_id)
-    return row[14] if row else 'ru'  # language
+    return row[14] if row else 'ru'
 
 def set_user_language(user_id, lang):
     update_user_field(user_id, "language", lang)
@@ -322,7 +316,7 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-# ---------- ПРОМОКОДЫ (расширенные) ----------
+# ---------- ПРОМОКОДЫ ----------
 def create_promo(code, max_uses, duration_days, attacks_bonus, energy_bonus, promo_type, admin_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -350,11 +344,9 @@ def use_promo(user_id, code):
         return None, "already"
     c.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (code,))
     c.execute("INSERT INTO used_promos (user_id, code, used_at) VALUES (?, ?, ?)", (user_id, code, datetime.now().isoformat()))
-    # увеличиваем счётчик активаций
     c.execute("UPDATE users SET promo_activations = promo_activations + 1 WHERE user_id = ?", (user_id,))
     c.execute("SELECT promo_activations FROM users WHERE user_id = ?", (user_id,))
     activations = c.fetchone()[0]
-    # бонусы за цели промо
     for i, target in enumerate(PROMO_TARGETS):
         if activations == target:
             atk = PROMO_BONUSES_ATTACKS[i]
@@ -366,7 +358,6 @@ def use_promo(user_id, code):
         c.execute("UPDATE users SET is_vip = 1, vip_until = ? WHERE user_id = ?", (vip_until, user_id))
     conn.commit()
     conn.close()
-    # прямой эффект промокода
     if promo_type == "vip":
         set_vip(user_id, duration)
         return duration, "vip"
@@ -461,7 +452,7 @@ def get_bonus_for_target(target, targets, bonuses):
             return bonuses[i]
     return None
 
-# ---------- FSM СОСТОЯНИЯ ----------
+# ---------- FSM ----------
 class AttackState(StatesGroup):
     waiting_username = State()
 
@@ -475,8 +466,7 @@ class CreatePromoState(StatesGroup):
     waiting_code = State()
     waiting_type = State()
     waiting_uses = State()
-    waiting_bonus = State()   # бонус (количество дней, атак или энергии)
-    waiting_duration = State()
+    waiting_bonus = State()
 
 class BlacklistState(StatesGroup):
     waiting_add = State()
@@ -518,7 +508,7 @@ def main_menu(user_id):
         [InlineKeyboardButton(text="🎁 Бонус (+50 атак +10 энергии)", callback_data="claim_bonus")],
         [InlineKeyboardButton(text="💎 Премиум", callback_data="premium_info")],
         [InlineKeyboardButton(text="👥 Рефералы", callback_data="ref_system")],
-        [InlineKeyboardButton(text="🏆 Рейтинг", callback_data="rating_attacks")],
+        [InlineKeyboardButton(text="🏆 Рейтинг атак", callback_data="rating_attacks")],
         [InlineKeyboardButton(text="⚡ Рейтинг энергии", callback_data="rating_energy")],
         [InlineKeyboardButton(text="📊 Моя статистика", callback_data="my_stats")],
         [InlineKeyboardButton(text="📢 Реклама", callback_data="advertisement")],
@@ -603,14 +593,12 @@ async def check_sub_callback(callback: aiogram_types.CallbackQuery):
                                           ]))
     await callback.answer()
 
-# ---------- БОНУС ----------
 @dp.callback_query(F.data == "claim_bonus")
 async def claim_bonus_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
     lang = get_user_language(user_id)
     if not await ensure_subscribed(callback.message, user_id, lang, callback):
         return
-    # бонус атак
     if not can_claim_daily_bonus(user_id):
         await callback.answer("❌ Вы уже получили бонус сегодня!", show_alert=True)
         return
@@ -620,7 +608,6 @@ async def claim_bonus_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(f"🎁 Вы получили +{DAILY_BONUS_ATTACKS} атак и +{DAILY_BONUS_ENERGY} энергии на сегодня!", reply_markup=main_menu(user_id))
     await callback.answer()
 
-# ---------- ПРЕМИУМ ----------
 @dp.callback_query(F.data == "premium_info")
 async def premium_info_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -646,13 +633,11 @@ async def buy_vip_energy_callback(callback: aiogram_types.CallbackQuery):
     if energy < VIP_PRICE:
         await callback.answer(f"❌ Недостаточно энергии! Нужно {VIP_PRICE}, у вас {energy}.", show_alert=True)
         return
-    # списываем энергию и даём VIP навсегда
     update_user_field(user_id, "energy", energy - VIP_PRICE)
-    set_vip(user_id, -1)  # -1 = навсегда
+    set_vip(user_id, -1)
     await callback.message.edit_text("🎉 Поздравляем! Вы купили VIP навсегда!", reply_markup=main_menu(user_id))
     await callback.answer()
 
-# ---------- РЕЙТИНГ АТАК ----------
 @dp.callback_query(F.data == "rating_attacks")
 async def rating_attacks_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -670,7 +655,6 @@ async def rating_attacks_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(f"🏆 ГЛОБАЛЬНЫЙ РЕЙТИНГ (по атакам):\n\n{top}", reply_markup=back_menu())
     await callback.answer()
 
-# ---------- РЕЙТИНГ ЭНЕРГИИ ----------
 @dp.callback_query(F.data == "rating_energy")
 async def rating_energy_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -688,7 +672,6 @@ async def rating_energy_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=back_menu())
     await callback.answer()
 
-# ---------- МОЯ СТАТИСТИКА ----------
 @dp.callback_query(F.data == "my_stats")
 async def my_stats_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -707,7 +690,6 @@ async def my_stats_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(f"📊 Ваша статистика:\n" + "\n".join(lines) + f"\n\nВсего атак: {total}", reply_markup=back_menu())
     await callback.answer()
 
-# ---------- РЕКЛАМА ----------
 @dp.callback_query(F.data == "advertisement")
 async def ad_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -718,7 +700,6 @@ async def ad_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(f"📢 {ad_text}", reply_markup=back_menu())
     await callback.answer()
 
-# ---------- СМЕНА ЦВЕТА (только для VIP) ----------
 @dp.callback_query(F.data == "change_color")
 async def change_color_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -739,7 +720,6 @@ async def set_color_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(f"✅ Цвет кнопок изменён на {color}.", reply_markup=main_menu(user_id))
     await callback.answer()
 
-# ---------- АТАКА ----------
 @dp.callback_query(F.data == "attack")
 async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -790,7 +770,6 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
     await message.answer(f"✅ Атака завершена! Отправлено {successful}/{total} жалоб на @{target}.", reply_markup=main_menu(user_id))
     await state.clear()
 
-# ---------- ПРОФИЛЬ ----------
 @dp.callback_query(F.data == "profile")
 async def profile_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -839,7 +818,6 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
-# ---------- ПРОМОКОД (ввод через кнопку) ----------
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -891,7 +869,6 @@ async def handle_promo_text(message: aiogram_types.Message):
             elif typ == "energy":
                 await message.answer(f"✅ Вам начислено {result} энергии!", reply_markup=main_menu(user_id))
 
-# ---------- РЕФЕРАЛЫ ----------
 @dp.callback_query(F.data == "ref_system")
 async def ref_system_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -945,7 +922,6 @@ async def copy_ref_link_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.answer(f"Ваша реферальная ссылка:\n`{link}`", parse_mode=ParseMode.MARKDOWN)
     await callback.answer()
 
-# ---------- НАЗАД ----------
 @dp.callback_query(F.data == "back")
 async def back_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -1016,7 +992,7 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await status.edit_text(f"✅ Готово! Отправлено {sent}/{len(users)}", reply_markup=admin_menu())
     await state.clear()
 
-# ---------- СОЗДАНИЕ ПРОМОКОДА (с кнопками и выбором типа) ----------
+# ---------- СОЗДАНИЕ ПРОМОКОДА ----------
 @dp.callback_query(F.data == "admin_create_promo")
 async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
@@ -1219,7 +1195,7 @@ async def remove_blacklist_handler(message: aiogram_types.Message, state: FSMCon
         await message.answer("❌ Цель не найдена.")
     await state.clear()
 
-# ---------- НАСТРОЙКИ (реклама и авто-рассылка) ----------
+# ---------- НАСТРОЙКИ ----------
 @dp.callback_query(F.data == "admin_settings")
 async def admin_settings_callback(callback: aiogram_types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
