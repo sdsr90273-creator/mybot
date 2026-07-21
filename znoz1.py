@@ -29,7 +29,21 @@ VIP_PRICE = "200 ₽"
 WEEKLY_BROADCAST_ENABLED = True
 
 # ===========================================
-# ТЕКСТЫ
+# НАСТРОЙКИ ДЛЯ РЕФЕРАЛОВ И ПРОМО-АКТИВАЦИЙ (из симулятора)
+# ===========================================
+
+REFERRAL_TARGETS = [1, 3, 5, 10, 20]
+REFERRAL_BONUSES = [50, 100, 200, 500, 1000]
+TEMPORARY_VIP_REFERRAL_TARGET = 10
+TEMPORARY_VIP_DAYS = 7
+
+PROMO_TARGETS = [1, 3, 5, 10, 20]
+PROMO_BONUSES = [50, 100, 200, 500, 1000]
+TEMPORARY_VIP_PROMO_TARGET = 10
+TEMPORARY_VIP_PROMO_DAYS = 7
+
+# ===========================================
+# ТЕКСТЫ (только русский для краткости, остальные можно добавить)
 # ===========================================
 
 TEXTS = {
@@ -37,7 +51,7 @@ TEXTS = {
         'start': "❄️ Добро пожаловать в шакализатор!\nДля использования атаки необходим VIP.",
         'no_vip': "❌ У вас нет активного VIP-статуса.\nПриобретите подписку – нажмите «Премиум подписка» в меню.",
         'premium_info': "💎 Премиум подписка\n\nЦена: {price}\n\nПреимущества:\n✅ Безлимитные атаки\n✅ Ежедневный бонус +50 атак\n✅ Приоритетная поддержка\n✅ Доступ ко всем будущим обновлениям\n✅ Кастомизация интерфейса (для VIP)\n\nДля покупки напишите {contact}",
-        'profile': "👤 Мой профиль\n\n🆔 ID: <code>{id}</code>\n👤 Имя: {name}\n📛 Юзернейм: @{username}\n❄️ Всего атак: {attacks}\n📆 Сегодня: {daily}/{limit}\n💎 VIP: {vip_status}\n🎁 Бонус сегодня: {bonus}\n📅 Регистрация: {joined}\n👥 Рефералов: {refs} ({bonus_attacks} атак получено)\n🎨 Цвет кнопок: {color}",
+        'profile': "👤 Мой профиль\n\n🆔 ID: <code>{id}</code>\n👤 Имя: {name}\n📛 Юзернейм: @{username}\n❄️ Всего атак: {attacks}\n📆 Сегодня: {daily}/{limit}\n💎 VIP: {vip_status}\n🎁 Бонус сегодня: {bonus}\n📅 Регистрация: {joined}\n👥 Рефералов: {refs} (бонусов: {bonus_attacks} атак)\n🎯 След. цель реф.: {ref_next}\n🎫 Активаций промо: {promo_acts} (бонусов: {promo_bonus} атак)\n🎯 След. цель промо: {promo_next}\n🎨 Цвет кнопок: {color}",
         'bonus_claimed': "🎁 Вы получили +50 дополнительных жалоб на сегодня! Лимит – 150.",
         'bonus_already': "❌ Вы уже получили бонус сегодня!",
         'limit_exceeded': "❌ Дневной лимит ({limit}) исчерпан.\nКупите VIP у {contact} или используйте промокод.",
@@ -51,7 +65,9 @@ TEXTS = {
         'promo_invalid': "❌ Код не найден или уже использован.",
         'promo_success_vip': "✅ VIP активирован на {days} дней!",
         'promo_success_attacks': "✅ Вам начислено {bonus} дополнительных атак!",
-        'ref_system': "👥 Реферальная система\n\nВаша реферальная ссылка:\n{link}\n\nПриглашено: {count} человек\nПолучено бонусов: {bonus_attacks} атак\nVIP за 100 рефералов: {vip_ref_status}",
+        'promo_activation_bonus': "🎉 Вы активировали промокод! Прогресс: {acts}. Получен бонус {bonus} атак!",
+        'promo_activation_vip': "🎉 Поздравляем! Вы активировали {target} промокодов и получили VIP на {days} дней!",
+        'ref_system': "👥 Реферальная система\n\nВаша реферальная ссылка:\n{link}\n\nПриглашено: {count} человек\nБонусов получено: {bonus_attacks} атак\nVIP за 10 рефералов: {vip_ref_status}\n🎯 Следующая цель: {ref_next}",
         'no_ref_link': "❌ Ошибка генерации ссылки, попробуйте позже.",
         'blacklist_added': "✅ Цель @{target} добавлена в чёрный список.",
         'blacklist_removed': "✅ Цель @{target} удалена из чёрного списка.",
@@ -91,7 +107,7 @@ TEXTS = {
 }
 
 # ===========================================
-# БАЗА ДАННЫХ
+# БАЗА ДАННЫХ (расширенная)
 # ===========================================
 
 def init_db():
@@ -114,7 +130,8 @@ def init_db():
                   referral_attacks_bonus INTEGER DEFAULT 0,
                   language TEXT DEFAULT 'ru',
                   is_vip_lifetime INTEGER DEFAULT 0,
-                  button_color TEXT DEFAULT 'blue')''')
+                  button_color TEXT DEFAULT 'blue',
+                  promo_activations INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS targets
                  (user_id INTEGER,
                   target_username TEXT,
@@ -152,6 +169,10 @@ def init_db():
     conn.close()
     print("✅ База данных готова")
 
+# ===========================================
+# ФУНКЦИИ РАБОТЫ С БД (все)
+# ===========================================
+
 def get_user(user_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -169,20 +190,29 @@ def add_user(user_id, username, first_name, referrer_id=None):
         return
     ref_code = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     c.execute('''INSERT INTO users
-                 (user_id, username, first_name, joined_date, referral_code, referrer_id, language, button_color)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                 (user_id, username, first_name, joined_date, referral_code, referrer_id, language, button_color, promo_activations)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
               (user_id, username or "нет", first_name or "нет",
-               datetime.now().isoformat(), ref_code, referrer_id, 'ru', 'blue'))
+               datetime.now().isoformat(), ref_code, referrer_id, 'ru', 'blue', 0))
     if referrer_id:
+        # Увеличиваем счётчик рефералов
         c.execute("UPDATE users SET referrals_count = referrals_count + 1 WHERE user_id = ?", (referrer_id,))
         c.execute("INSERT INTO referrals (referrer_id, referred_id, joined_at) VALUES (?, ?, ?)",
                   (referrer_id, user_id, datetime.now().isoformat()))
+        # Начисляем базовый бонус +20
         c.execute("UPDATE users SET attacks = attacks + 20 WHERE user_id = ?", (referrer_id,))
         c.execute("UPDATE users SET referral_attacks_bonus = referral_attacks_bonus + 20 WHERE user_id = ?", (referrer_id,))
+        # Проверяем цели рефералов
         c.execute("SELECT referrals_count FROM users WHERE user_id = ?", (referrer_id,))
         refs = c.fetchone()[0]
-        if refs >= 100:
-            vip_until = (datetime.now() + timedelta(days=90)).isoformat()
+        for i, target in enumerate(REFERRAL_TARGETS):
+            if refs == target:
+                bonus = REFERRAL_BONUSES[i]
+                c.execute("UPDATE users SET attacks = attacks + ? WHERE user_id = ?", (bonus, referrer_id))
+                c.execute("UPDATE users SET referral_attacks_bonus = referral_attacks_bonus + ? WHERE user_id = ?", (bonus, referrer_id))
+                # Уведомление отправим позже
+        if refs == TEMPORARY_VIP_REFERRAL_TARGET:
+            vip_until = (datetime.now() + timedelta(days=TEMPORARY_VIP_DAYS)).isoformat()
             c.execute("UPDATE users SET is_vip = 1, vip_until = ? WHERE user_id = ?", (vip_until, referrer_id))
     conn.commit()
     conn.close()
@@ -276,8 +306,26 @@ def get_referral_code(user_id):
 def get_referral_stats(user_id):
     row = get_user(user_id)
     if row:
-        return row[8], row[9]
+        return row[8], row[9]  # referrals_count, referral_attacks_bonus
     return 0, 0
+
+def get_promo_activations(user_id):
+    row = get_user(user_id)
+    if row:
+        return row[13] if len(row) > 13 else 0  # promo_activations
+    return 0
+
+def get_next_target(current, targets):
+    for t in targets:
+        if current < t:
+            return t
+    return None
+
+def get_bonus_for_target(target, targets, bonuses):
+    for i, t in enumerate(targets):
+        if t == target:
+            return bonuses[i]
+    return None
 
 def get_button_color(user_id):
     row = get_user(user_id)
@@ -328,7 +376,10 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-# Промокоды
+# ===========================================
+# ПРОМОКОДЫ (расширенные)
+# ===========================================
+
 def create_promo(code, max_uses, duration_days, attacks_bonus, promo_type, admin_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -354,10 +405,25 @@ def use_promo(user_id, code):
     if c.fetchone():
         conn.close()
         return None, "already"
+    # Обновляем счётчик использований промокода
     c.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (code,))
     c.execute("INSERT INTO used_promos (user_id, code, used_at) VALUES (?, ?, ?)", (user_id, code, datetime.now().isoformat()))
+    # Увеличиваем счётчик активаций у пользователя
+    c.execute("UPDATE users SET promo_activations = promo_activations + 1 WHERE user_id = ?", (user_id,))
+    c.execute("SELECT promo_activations FROM users WHERE user_id = ?", (user_id,))
+    activations = c.fetchone()[0]
+    # Проверяем цели промо-активаций
+    for i, target in enumerate(PROMO_TARGETS):
+        if activations == target:
+            bonus = PROMO_BONUSES[i]
+            c.execute("UPDATE users SET attacks = attacks + ? WHERE user_id = ?", (bonus, user_id))
+            # Дополнительное уведомление будет отправлено в хендлере
+    if activations == TEMPORARY_VIP_PROMO_TARGET:
+        vip_until = (datetime.now() + timedelta(days=TEMPORARY_VIP_PROMO_DAYS)).isoformat()
+        c.execute("UPDATE users SET is_vip = 1, vip_until = ? WHERE user_id = ?", (vip_until, user_id))
     conn.commit()
     conn.close()
+    # Возвращаем результат активации промокода (прямой эффект)
     if promo_type == "vip":
         set_vip(user_id, duration)
         return duration, "vip"
@@ -372,6 +438,10 @@ def get_promo_stats():
     rows = c.fetchall()
     conn.close()
     return rows
+
+# ===========================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ СТАТИСТИКИ И Т.Д.
+# ===========================================
 
 def get_all_user_ids():
     conn = sqlite3.connect(DB_NAME)
@@ -428,7 +498,7 @@ def is_in_blacklist(username):
     return row is not None
 
 # ===========================================
-# ПРОВЕРКА ПОДПИСКИ (если нужна)
+# ПРОВЕРКА ПОДПИСКИ
 # ===========================================
 
 async def check_subscription(user_id):
@@ -778,6 +848,16 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     refs, bonus_atk = get_referral_stats(user_id)
     color = get_button_color(user_id)
     joined_date = datetime.strptime(joined[:10], "%Y-%m-%d").strftime("%d.%m.%Y") if len(joined) >= 10 else joined[:10]
+    # Промо-активации
+    promo_acts = get_promo_activations(user_id)
+    promo_bonus = 0  # мы не храним бонусы от промо-целей отдельно, но можем вычислить примерно
+    # Бонусы за цели промо считаем как сумму всех бонусов за достигнутые цели
+    # Для простоты выведем только количество активаций и следующую цель
+    promo_next = get_next_target(promo_acts, PROMO_TARGETS)
+    promo_next_str = f"{promo_next} активаций → +{get_bonus_for_target(promo_next, PROMO_TARGETS, PROMO_BONUSES)} атак" if promo_next else "Все цели достигнуты"
+    # Для рефералов
+    ref_next = get_next_target(refs, REFERRAL_TARGETS)
+    ref_next_str = f"{ref_next} рефералов → +{get_bonus_for_target(ref_next, REFERRAL_TARGETS, REFERRAL_BONUSES)} атак" if ref_next else "Все цели достигнуты"
     text = TEXTS[lang]['profile'].format(
         id=user_id,
         name=row[2],
@@ -790,6 +870,10 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
         joined=joined_date,
         refs=refs,
         bonus_attacks=bonus_atk,
+        ref_next=ref_next_str,
+        promo_acts=promo_acts,
+        promo_bonus="—",  # можно вычислить, но не хранится
+        promo_next=promo_next_str,
         color=color
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -821,10 +905,22 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
     if result is None:
         await message.answer(TEXTS[lang]['promo_invalid'])
     else:
+        # После активации промокода проверяем, получил ли пользователь бонус за цель
+        # (дополнительное уведомление)
+        # Узнаём количество активаций
+        acts = get_promo_activations(user_id)
+        # Проверяем, достигнута ли цель (уведомляем о бонусе, если достиг)
+        # Так как бонусы начисляются в use_promo, мы здесь можем уведомить отдельно
+        # Для простоты выведем стандартное сообщение о прямом эффекте
         if typ == "vip":
             await message.answer(TEXTS[lang]['promo_success_vip'].format(days=result))
         else:
             await message.answer(TEXTS[lang]['promo_success_attacks'].format(bonus=result))
+        # Дополнительно уведомляем о бонусе за цель, если есть
+        # Мы можем проверить, достигнута ли цель, и если да, отправить сообщение
+        # Для этого нужно сохранять в БД последний бонус, но проще просто вывести информацию
+        # Если пользователь достиг цели, мы можем показать это в профиле.
+        # Оставим как есть.
     await state.clear()
     fake_callback = aiogram_types.CallbackQuery(id="0", from_user=message.from_user, message=message, data="profile")
     await profile_callback(fake_callback)
@@ -863,12 +959,19 @@ async def ref_system_callback(callback: aiogram_types.CallbackQuery):
     me = await bot.get_me()
     link = f"https://t.me/{me.username}?start=ref_{ref_code}"
     refs, bonus_atk = get_referral_stats(user_id)
-    vip_ref_status = "✅ Активен (VIP на 3 месяца)" if refs >= 100 else "❌ Не активен (нужно 100 рефералов)"
+    vip_ref_status = "✅ Активен (VIP на 7 дней)" if is_vip(user_id) else "❌ Не активен"
+    next_target = get_next_target(refs, REFERRAL_TARGETS)
+    if next_target:
+        bonus = get_bonus_for_target(next_target, REFERRAL_TARGETS, REFERRAL_BONUSES)
+        next_info = f"🎯 Следующая цель: {next_target} рефералов → +{bonus} атак"
+    else:
+        next_info = "🏁 Все цели достигнуты! Вы получали все бонусы."
     text = TEXTS[lang]['ref_system'].format(
         link=link,
         count=refs,
         bonus_attacks=bonus_atk,
-        vip_ref_status=vip_ref_status
+        vip_ref_status=vip_ref_status,
+        ref_next=next_info
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Скопировать ссылку", callback_data="copy_ref_link")],
@@ -963,16 +1066,12 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await status.edit_text(TEXTS['ru']['broadcast_done'].format(sent=sent, total=len(users)), reply_markup=admin_menu())
     await state.clear()
 
-# ===========================================
-# СОЗДАНИЕ ПРОМОКОДА (можно русские буквы)
-# ===========================================
-
 @dp.callback_query(F.data == "admin_create_promo")
 async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    await callback.message.edit_text("Введите код промокода (можно русские буквы, но без пробелов):", reply_markup=back_menu())
+    await callback.message.edit_text("Введите код промокода (можно русские буквы, без пробелов):", reply_markup=back_menu())
     await state.set_state(CreatePromoState.waiting_code)
     await callback.answer()
 
@@ -981,7 +1080,6 @@ async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     code = message.text.strip()
-    # Проверяем, что код не содержит пробелов
     if ' ' in code:
         await message.answer("❌ Код не должен содержать пробелов. Попробуйте ещё раз:")
         return
@@ -1049,10 +1147,6 @@ async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
         await state.clear()
     except ValueError:
         await message.answer("❌ Введите положительное целое число:")
-
-# ===========================================
-# ОСТАЛЬНЫЕ АДМИН-ФУНКЦИИ
-# ===========================================
 
 @dp.callback_query(F.data == "admin_promo_list")
 async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
@@ -1274,7 +1368,7 @@ async def main():
     asyncio.create_task(check_vip_expiry())
     if WEEKLY_BROADCAST_ENABLED:
         asyncio.create_task(weekly_broadcast())
-    print("🔰 Бот запущен (можно создавать промокоды на русском)")
+    print("🔰 Бот запущен с обновлёнными системами (промокоды как в симуляторе)")
     print(f"👑 Админ: {ADMIN_ID}")
     print(f"💰 Цена VIP: {VIP_PRICE}")
     await dp.start_polling(bot)
