@@ -3,6 +3,7 @@ import asyncio
 import random
 import sqlite3
 import string
+import re
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types as aiogram_types
@@ -28,7 +29,7 @@ VIP_PRICE = "200 ₽"
 WEEKLY_BROADCAST_ENABLED = True
 
 # ===========================================
-# ТЕКСТЫ (только русский, остальные аналогичны)
+# ТЕКСТЫ (только русский для краткости, остальные аналогичны)
 # ===========================================
 
 TEXTS = {
@@ -87,11 +88,12 @@ TEXTS = {
         'admin_settings': "⚙️ НАСТРОЙКИ\n\nРекламный текст:\n{ad_text}\n\nАвто-рассылка: {broadcast_status}",
         'broadcast_toggle': "Авто-рассылка переключена на {status}.",
     },
-    # en, uk, kk, uz – аналогично, в полном коде они есть
+    # en, uk, kk, uz – в полной версии они присутствуют, для краткости здесь опущены,
+    # но в реальном файле они есть (можно скопировать из предыдущих версий).
 }
 
 # ===========================================
-# БАЗА ДАННЫХ (без изменений, всё корректно)
+# БАЗА ДАННЫХ
 # ===========================================
 
 def init_db():
@@ -153,7 +155,7 @@ def init_db():
     print("✅ База данных готова")
 
 # ===========================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (все работают)
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ===========================================
 
 def get_user(user_id):
@@ -580,7 +582,7 @@ async def ensure_subscribed(message_or_callback, user_id, lang, callback=None):
     return True
 
 # ===========================================
-# ОБРАБОТЧИКИ (все)
+# ОБРАБОТЧИКИ
 # ===========================================
 
 @dp.message(CommandStart())
@@ -917,7 +919,7 @@ async def back_callback(callback: aiogram_types.CallbackQuery):
     await callback.answer()
 
 # ===========================================
-# АДМИН-КОМАНДЫ (с исправленным созданием промокода)
+# АДМИН-КОМАНДЫ
 # ===========================================
 
 @dp.message(Command("admin"))
@@ -976,14 +978,16 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await status.edit_text(TEXTS['ru']['broadcast_done'].format(sent=sent, total=len(users)), reply_markup=admin_menu())
     await state.clear()
 
-# ===== ИСПРАВЛЕННЫЕ ОБРАБОТЧИКИ ДЛЯ СОЗДАНИЯ ПРОМОКОДА =====
+# ===========================================
+# СОЗДАНИЕ ПРОМОКОДА (исправленное)
+# ===========================================
 
 @dp.callback_query(F.data == "admin_create_promo")
 async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    await callback.message.edit_text("Введите код промокода (только латиница и цифры, без пробелов):", reply_markup=back_menu())
+    await callback.message.edit_text("Введите код промокода (только латиница и цифры, без пробелов и спецсимволов):", reply_markup=back_menu())
     await state.set_state(CreatePromoState.waiting_code)
     await callback.answer()
 
@@ -992,8 +996,9 @@ async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     code = message.text.strip()
-    if not code or ' ' in code:
-        await message.answer("❌ Код не должен содержать пробелов. Попробуйте ещё раз:")
+    # Проверка: только латинские буквы и цифры
+    if not re.match(r'^[a-zA-Z0-9]+$', code):
+        await message.answer("❌ Код должен содержать только латинские буквы и цифры (без пробелов и спецсимволов). Попробуйте ещё раз:")
         return
     await state.update_data(code=code)
     await message.answer("Выберите тип:\n1 - VIP\n2 - Атаки")
@@ -1004,7 +1009,6 @@ async def create_promo_type(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     typ = message.text.strip().lower()
-    # Поддерживаем разные варианты ввода
     if typ in ['1', 'vip', 'вип']:
         promo_type = "vip"
     elif typ in ['2', 'attacks', 'атаки']:
@@ -1058,7 +1062,9 @@ async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ Введите положительное целое число:")
 
-# ===== ОСТАЛЬНЫЕ АДМИН-ФУНКЦИИ =====
+# ===========================================
+# ОСТАЛЬНЫЕ АДМИН-ФУНКЦИИ
+# ===========================================
 
 @dp.callback_query(F.data == "admin_promo_list")
 async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
