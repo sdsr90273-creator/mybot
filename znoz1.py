@@ -29,7 +29,7 @@ VIP_PRICE = "200 ₽"
 WEEKLY_BROADCAST_ENABLED = True
 
 # ===========================================
-# ТЕКСТЫ (только русский, остальные не нужны для краткости)
+# ТЕКСТЫ
 # ===========================================
 
 TEXTS = {
@@ -964,7 +964,7 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await state.clear()
 
 # ===========================================
-# СОЗДАНИЕ ПРОМОКОДА (исправленное)
+# СОЗДАНИЕ ПРОМОКОДА (можно русские буквы)
 # ===========================================
 
 @dp.callback_query(F.data == "admin_create_promo")
@@ -972,7 +972,7 @@ async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, sta
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    await callback.message.edit_text("Введите код промокода (только латиница и цифры, без пробелов и спецсимволов):", reply_markup=back_menu())
+    await callback.message.edit_text("Введите код промокода (можно русские буквы, но без пробелов):", reply_markup=back_menu())
     await state.set_state(CreatePromoState.waiting_code)
     await callback.answer()
 
@@ -981,8 +981,12 @@ async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     code = message.text.strip()
-    if not re.match(r'^[a-zA-Z0-9]+$', code):
-        await message.answer("❌ Код должен содержать только латинские буквы и цифры. Попробуйте ещё раз:")
+    # Проверяем, что код не содержит пробелов
+    if ' ' in code:
+        await message.answer("❌ Код не должен содержать пробелов. Попробуйте ещё раз:")
+        return
+    if code == "":
+        await message.answer("❌ Код не может быть пустым. Попробуйте ещё раз:")
         return
     await state.update_data(code=code)
     await message.answer("Выберите тип:\n1 - VIP\n2 - Атаки")
@@ -1270,7 +1274,7 @@ async def main():
     asyncio.create_task(check_vip_expiry())
     if WEEKLY_BROADCAST_ENABLED:
         asyncio.create_task(weekly_broadcast())
-    print("🔰 Бот запущен (все функции исправлены)")
+    print("🔰 Бот запущен (можно создавать промокоды на русском)")
     print(f"👑 Админ: {ADMIN_ID}")
     print(f"💰 Цена VIP: {VIP_PRICE}")
     await dp.start_polling(bot)
