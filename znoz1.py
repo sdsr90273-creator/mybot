@@ -14,7 +14,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# ---------- НАСТРОЙКИ ----------
+# ===========================================
+# НАСТРОЙКИ
+# ===========================================
 BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
 ADMIN_ID = 8457792268
 REQUIRED_CHANNEL = ""  # если нужна подписка, укажите @канал
@@ -29,18 +31,21 @@ PROMO_TARGETS = [1, 3, 5, 10, 20]
 PROMO_BONUSES = [50, 100, 200, 500, 1000]
 VIP_DAYS_FOR_GOAL = 7
 
-# ---------- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ЧИСЕЛ ----------
+# ===========================================
+# ФУНКЦИЯ ДЛЯ ОЧИСТКИ ЧИСЕЛ
+# ===========================================
 def clean_number_input(text: str) -> str:
     text = text.strip()
     if text.startswith('/'):
         text = text[1:]
     return ''.join(filter(str.isdigit, text))
 
-# ---------- БАЗА ДАННЫХ ----------
+# ===========================================
+# БАЗА ДАННЫХ (создаётся с нуля)
+# ===========================================
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Создаём таблицу пользователей, если её нет
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         username TEXT,
@@ -61,23 +66,6 @@ def init_db():
         button_color TEXT DEFAULT 'blue',
         promo_activations INTEGER DEFAULT 0
     )''')
-    # Добавляем недостающие колонки, если они уже есть – пропускаем
-    columns_to_add = {
-        'button_color': 'TEXT DEFAULT "blue"',
-        'promo_activations': 'INTEGER DEFAULT 0',
-        'is_vip_lifetime': 'INTEGER DEFAULT 0',
-        'referral_code': 'TEXT',
-        'referrer_id': 'INTEGER',
-        'referrals_count': 'INTEGER DEFAULT 0',
-        'referral_attacks_bonus': 'INTEGER DEFAULT 0',
-        'language': 'TEXT DEFAULT "ru"'
-    }
-    c.execute("PRAGMA table_info(users)")
-    existing_columns = [row[1] for row in c.fetchall()]
-    for col, col_type in columns_to_add.items():
-        if col not in existing_columns:
-            c.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
-    # Остальные таблицы создаются так же
     c.execute('''CREATE TABLE IF NOT EXISTS targets (
         user_id INTEGER,
         target_username TEXT,
@@ -119,9 +107,11 @@ def init_db():
     )''')
     conn.commit()
     conn.close()
-    print("✅ База данных обновлена (добавлены недостающие колонки)")
+    print("✅ База данных создана с правильной структурой")
 
-# ---------- ОСНОВНЫЕ ФУНКЦИИ РАБОТЫ С БД ----------
+# ===========================================
+# ФУНКЦИИ РАБОТЫ С БД
+# ===========================================
 def get_user(user_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -129,6 +119,7 @@ def get_user(user_id):
     row = c.fetchone()
     conn.close()
     return row
+
 def update_user_field(user_id, field, value):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -293,7 +284,9 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-# ---------- ПРОМОКОДЫ ----------
+# ===========================================
+# ПРОМОКОДЫ
+# ===========================================
 def create_promo(code, max_uses, duration_days, attacks_bonus, promo_type, admin_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -348,7 +341,9 @@ def get_promo_stats():
     conn.close()
     return rows
 
-# ---------- ДРУГИЕ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
+# ===========================================
+# ДРУГИЕ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ===========================================
 def get_all_user_ids():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -415,7 +410,9 @@ def get_bonus_for_target(target, targets, bonuses):
             return bonuses[i]
     return None
 
-# ---------- FSM СОСТОЯНИЯ ----------
+# ===========================================
+# FSM СОСТОЯНИЯ
+# ===========================================
 class AttackState(StatesGroup):
     waiting_username = State()
 
@@ -438,7 +435,9 @@ class BlacklistState(StatesGroup):
 class AdState(StatesGroup):
     waiting_text = State()
 
-# ---------- ПРОВЕРКА ПОДПИСКИ ----------
+# ===========================================
+# ПРОВЕРКА ПОДПИСКИ
+# ===========================================
 async def check_subscription(user_id):
     if not REQUIRED_CHANNEL:
         return True
@@ -462,7 +461,9 @@ async def ensure_subscribed(message_or_callback, user_id, lang, callback=None):
         return False
     return True
 
-# ---------- КЛАВИАТУРЫ ----------
+# ===========================================
+# КЛАВИАТУРЫ
+# ===========================================
 def main_menu(user_id):
     buttons = [
         [InlineKeyboardButton(text="❄️ Атака", callback_data="attack")],
@@ -509,12 +510,16 @@ def promo_type_keyboard():
         [InlineKeyboardButton(text="🔙 Отмена", callback_data="back")]
     ])
 
-# ---------- БОТ ----------
+# ===========================================
+# БОТ
+# ===========================================
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# ---------- ОБРАБОТЧИКИ ----------
+# ===========================================
+# ОБРАБОТЧИКИ
+# ===========================================
 @dp.message(CommandStart())
 async def start_command(message: aiogram_types.Message):
     user_id = message.from_user.id
@@ -692,7 +697,6 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
     await message.answer(f"✅ Атака завершена! Отправлено {successful}/{total} жалоб на @{target}.", reply_markup=main_menu(user_id))
     await state.clear()
 
-# ---------- ПРОФИЛЬ (исправлен) ----------
 @dp.callback_query(F.data == "profile")
 async def profile_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -739,7 +743,6 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
-# ---------- ВВОД ПРОМОКОДА ----------
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -787,7 +790,6 @@ async def handle_promo_text(message: aiogram_types.Message):
             else:
                 await message.answer(f"✅ Вам начислено {result} атак!", reply_markup=main_menu(user_id))
 
-# ---------- РЕФЕРАЛЫ ----------
 @dp.callback_query(F.data == "ref_system")
 async def ref_system_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -840,7 +842,6 @@ async def copy_ref_link_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.answer(f"Ваша реферальная ссылка:\n`{link}`", parse_mode=ParseMode.MARKDOWN)
     await callback.answer()
 
-# ---------- НАЗАД ----------
 @dp.callback_query(F.data == "back")
 async def back_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -854,7 +855,9 @@ async def back_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text("❄️ Главное меню", reply_markup=main_menu(user_id))
     await callback.answer()
 
-# ---------- АДМИНКА ----------
+# ===========================================
+# АДМИН-КОМАНДЫ
+# ===========================================
 @dp.message(Command("admin"))
 async def admin_command(message: aiogram_types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -910,7 +913,6 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await status.edit_text(f"✅ Готово! Отправлено {sent}/{len(users)}", reply_markup=admin_menu())
     await state.clear()
 
-# ---------- СОЗДАНИЕ ПРОМОКОДА ----------
 @dp.callback_query(F.data == "admin_create_promo")
 async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
@@ -1027,7 +1029,9 @@ async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=back_menu())
     await callback.answer()
 
-# ---------- ЧЁРНЫЙ СПИСОК ----------
+# ===========================================
+# ЧЁРНЫЙ СПИСОК
+# ===========================================
 @dp.callback_query(F.data == "admin_blacklist")
 async def admin_blacklist_callback(callback: aiogram_types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -1095,7 +1099,9 @@ async def remove_blacklist_handler(message: aiogram_types.Message, state: FSMCon
         await message.answer("❌ Цель не найдена.")
     await state.clear()
 
-# ---------- НАСТРОЙКИ ----------
+# ===========================================
+# НАСТРОЙКИ
+# ===========================================
 @dp.callback_query(F.data == "admin_settings")
 async def admin_settings_callback(callback: aiogram_types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -1145,7 +1151,9 @@ async def admin_toggle_broadcast_callback(callback: aiogram_types.CallbackQuery)
     await callback.answer(f"Авто-рассылка {'включена' if new_status else 'отключена'}")
     await admin_settings_callback(callback)
 
-# ---------- ФОНОВЫЕ ЗАДАЧИ ----------
+# ===========================================
+# ФОНОВЫЕ ЗАДАЧИ
+# ===========================================
 async def weekly_broadcast():
     while True:
         try:
@@ -1187,7 +1195,9 @@ async def check_vip_expiry():
             print(f"VIP expiry check error: {e}")
         await asyncio.sleep(86400)
 
-# ---------- ЯЗЫКИ ----------
+# ===========================================
+# ЯЗЫКИ
+# ===========================================
 @dp.message(Command("lang"))
 async def lang_command(message: aiogram_types.Message):
     user_id = message.from_user.id
@@ -1209,12 +1219,14 @@ async def lang_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(f"🌐 Язык изменён.", reply_markup=main_menu(user_id))
     await callback.answer()
 
-# ---------- ЗАПУСК ----------
+# ===========================================
+# ЗАПУСК
+# ===========================================
 async def main():
     init_db()
     asyncio.create_task(check_vip_expiry())
     asyncio.create_task(weekly_broadcast())
-    print("🔰 Бот запущен (все функции исправлены, профиль работает)")
+    print("🔰 Бот запущен (профиль работает)")
     print(f"👑 Админ: {ADMIN_ID}")
     await dp.start_polling(bot)
 
