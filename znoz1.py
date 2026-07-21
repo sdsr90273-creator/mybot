@@ -259,28 +259,28 @@ def claim_energy_bonus(user_id):
 
 def get_referral_code(user_id):
     row = get_user(user_id)
-    return row[12] if row else None
+    return row[13] if row else None  # fixed index
 
 def get_referral_stats(user_id):
     row = get_user(user_id)
     if row:
-        return row[13], row[14], row[15]  # referrals_count, referral_attacks_bonus, referral_energy_bonus
+        return row[14], row[15], row[16]  # referrals_count, referral_attacks_bonus, referral_energy_bonus
     return 0, 0, 0
 
 def get_promo_activations(user_id):
     row = get_user(user_id)
-    return row[17] if row else 0
+    return row[20] if row else 0  # fixed index
 
 def get_button_color(user_id):
     row = get_user(user_id)
-    return row[16] if row and row[16] else 'blue'
+    return row[19] if row and row[19] else 'blue'  # fixed index
 
 def set_button_color(user_id, color):
     update_user_field(user_id, "button_color", color)
 
 def get_user_language(user_id):
     row = get_user(user_id)
-    return row[14] if row else 'ru'
+    return row[17] if row else 'ru'  # fixed index
 
 def set_user_language(user_id, lang):
     update_user_field(user_id, "language", lang)
@@ -923,7 +923,8 @@ async def copy_ref_link_callback(callback: aiogram_types.CallbackQuery):
     await callback.answer()
 
 @dp.callback_query(F.data == "back")
-async def back_callback(callback: aiogram_types.CallbackQuery):
+async def back_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    await state.clear()  # Очищаем состояние при возврате
     user_id = callback.from_user.id
     if not await check_subscription(user_id):
         await callback.message.edit_text(f"❌ Вы не подписаны на {REQUIRED_CHANNEL}",
