@@ -34,6 +34,16 @@ PROMO_BONUSES = [50, 100, 200, 500, 1000]
 VIP_DAYS_FOR_GOAL = 7
 
 # ===========================================
+# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ЧИСЕЛ
+# ===========================================
+
+def clean_number_input(text: str) -> str:
+    """Удаляет все символы, кроме цифр, и убирает пробелы."""
+    text = text.strip()
+    cleaned = ''.join(filter(str.isdigit, text))
+    return cleaned
+
+# ===========================================
 # БАЗА ДАННЫХ
 # ===========================================
 
@@ -146,7 +156,7 @@ def add_user(user_id, username, first_name, referrer_id=None):
                 bonus = REFERRAL_BONUSES[i]
                 c.execute("UPDATE users SET attacks = attacks + ? WHERE user_id = ?", (bonus, referrer_id))
                 c.execute("UPDATE users SET referral_attacks_bonus = referral_attacks_bonus + ? WHERE user_id = ?", (bonus, referrer_id))
-        if refs == 10:  # временный VIP
+        if refs == 10:
             vip_until = (datetime.now() + timedelta(days=VIP_DAYS_FOR_GOAL)).isoformat()
             c.execute("UPDATE users SET is_vip = 1, vip_until = ? WHERE user_id = ?", (vip_until, referrer_id))
     conn.commit()
@@ -225,7 +235,7 @@ def get_referral_code(user_id):
 def get_referral_stats(user_id):
     row = get_user(user_id)
     if row:
-        return row[8], row[9]  # referrals_count, referral_attacks_bonus
+        return row[8], row[9]
     return 0, 0
 
 def get_promo_activations(user_id):
@@ -303,14 +313,11 @@ def use_promo(user_id, code):
     if c.fetchone():
         conn.close()
         return None, "already"
-    # Обновляем счётчик использований
     c.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (code,))
     c.execute("INSERT INTO used_promos (user_id, code, used_at) VALUES (?, ?, ?)", (user_id, code, datetime.now().isoformat()))
-    # Увеличиваем счётчик активаций у пользователя
     c.execute("UPDATE users SET promo_activations = promo_activations + 1 WHERE user_id = ?", (user_id,))
     c.execute("SELECT promo_activations FROM users WHERE user_id = ?", (user_id,))
     activations = c.fetchone()[0]
-    # Проверяем цели
     for i, target in enumerate(PROMO_TARGETS):
         if activations == target:
             bonus = PROMO_BONUSES[i]
@@ -320,7 +327,6 @@ def use_promo(user_id, code):
         c.execute("UPDATE users SET is_vip = 1, vip_until = ? WHERE user_id = ?", (vip_until, user_id))
     conn.commit()
     conn.close()
-    # Возвращаем прямой эффект
     if promo_type == "vip":
         set_vip(user_id, duration)
         return duration, "vip"
@@ -417,7 +423,7 @@ class AdState(StatesGroup):
     waiting_text = State()
 
 # ===========================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ КЛАВИАТУР
 # ===========================================
 
 def get_next_target(current, targets):
@@ -645,14 +651,12 @@ async def set_color_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(f"✅ Цвет кнопок изменён на {color}.", reply_markup=main_menu(user_id))
     await callback.answer()
 
-# === АТАКА (доступна всем, но лимит для обычных) ===
 @dp.callback_query(F.data == "attack")
 async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = get_user_language(user_id)
     if not await ensure_subscribed(callback.message, user_id, lang, callback):
         return
-    # Проверяем лимит – для всех, но VIP безлимит
     limit = get_daily_limit(user_id)
     daily = get_daily_attacks(user_id)
     if daily >= limit:
@@ -682,14 +686,12 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
         await message.answer(f"⛔ {PROTECTED_BOT} под защитой.", reply_markup=main_menu(user_id))
         await state.clear()
         return
-    # Проверяем лимит ещё раз
     limit = get_daily_limit(user_id)
     daily = get_daily_attacks(user_id)
     if daily >= limit:
         await message.answer(f"❌ Лимит исчерпан.", reply_markup=main_menu(user_id))
         await state.clear()
         return
-    # Имитация атаки
     await message.answer(f"🚀 Атака на @{target}...")
     await asyncio.sleep(random.uniform(2, 4))
     total = random.randint(50, 100)
@@ -699,7 +701,6 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
     await message.answer(f"✅ Атака завершена! Отправлено {successful}/{total} жалоб на @{target}.", reply_markup=main_menu(user_id))
     await state.clear()
 
-# === ПРОФИЛЬ ===
 @dp.callback_query(F.data == "profile")
 async def profile_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -721,7 +722,6 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     color = get_button_color(user_id)
     joined_date = datetime.strptime(joined[:10], "%Y-%m-%d").strftime("%d.%m.%Y") if len(joined) >= 10 else joined[:10]
     promo_acts = get_promo_activations(user_id)
-    # Следующие цели
     ref_next = get_next_target(refs, REFERRAL_TARGETS)
     ref_next_str = f"{ref_next} реф. → +{get_bonus_for_target(ref_next, REFERRAL_TARGETS, REFERRAL_BONUSES)} атак" if ref_next else "Все цели достигнуты"
     promo_next = get_next_target(promo_acts, PROMO_TARGETS)
@@ -747,7 +747,6 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
-# === ПРОМОКОД (ввод) ===
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -776,11 +775,9 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
             await message.answer(f"✅ Вам начислено {result} атак!", reply_markup=main_menu(user_id))
     await state.clear()
 
-# Авто-ввод промокода (без команды)
 @dp.message(F.text, ~F.text.startswith('/'))
 async def handle_promo_text(message: aiogram_types.Message):
     user_id = message.from_user.id
-    # Проверяем, не является ли текст промокодом (только если пользователь не в процессе создания промокода)
     code = message.text.strip()
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -797,7 +794,6 @@ async def handle_promo_text(message: aiogram_types.Message):
             else:
                 await message.answer(f"✅ Вам начислено {result} атак!", reply_markup=main_menu(user_id))
 
-# === РЕФЕРАЛЫ ===
 @dp.callback_query(F.data == "ref_system")
 async def ref_system_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -813,7 +809,7 @@ async def ref_system_callback(callback: aiogram_types.CallbackQuery):
     if me.username:
         link = f"https://t.me/{me.username}?start=ref_{ref_code}"
     else:
-        link = f"https://t.me/{me.id}?start=ref_{ref_code}"  # fallback на ID
+        link = f"https://t.me/{me.id}?start=ref_{ref_code}"
     refs, bonus_atk = get_referral_stats(user_id)
     vip_ref_status = "✅ Активен (VIP на 7 дней)" if is_vip(user_id) else "❌ Не активен"
     next_target = get_next_target(refs, REFERRAL_TARGETS)
@@ -923,7 +919,7 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await state.clear()
 
 # ===========================================
-# СОЗДАНИЕ ПРОМОКОДА (с улучшенной обработкой чисел)
+# СОЗДАНИЕ ПРОМОКОДА (все шаги с очисткой чисел и кнопками)
 # ===========================================
 
 @dp.callback_query(F.data == "admin_create_promo")
@@ -971,22 +967,38 @@ async def promo_type_attacks(callback: aiogram_types.CallbackQuery, state: FSMCo
 async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
+    if message.text.startswith('/'):
+        await message.answer("❌ Создание промокода отменено.", reply_markup=admin_menu())
+        await state.clear()
+        return
+    cleaned = clean_number_input(message.text)
+    if not cleaned:
+        await message.answer("❌ Введите положительное целое число (только цифры):")
+        return
     try:
-        bonus = int(message.text.strip())
+        bonus = int(cleaned)
         if bonus <= 0:
             raise ValueError
         await state.update_data(bonus=bonus)
         await message.answer("Введите количество использований (макс):", reply_markup=back_menu())
         await state.set_state(CreatePromoState.waiting_uses)
     except ValueError:
-        await message.answer("❌ Введите положительное целое число (без букв и символов):")
+        await message.answer("❌ Введите положительное целое число (только цифры):")
 
 @dp.message(CreatePromoState.waiting_uses)
 async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
+    if message.text.startswith('/'):
+        await message.answer("❌ Создание промокода отменено.", reply_markup=admin_menu())
+        await state.clear()
+        return
+    cleaned = clean_number_input(message.text)
+    if not cleaned:
+        await message.answer("❌ Введите положительное целое число (только цифры):")
+        return
     try:
-        uses = int(message.text.strip())
+        uses = int(cleaned)
         if uses <= 0:
             raise ValueError
         data = await state.get_data()
@@ -1002,7 +1014,7 @@ async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
         await message.answer(f"✅ Промокод **{code}** создан!\nТип: {promo_type.capitalize()}\nИспользований: {uses}\nБонус: {bonus_str}", reply_markup=admin_menu())
         await state.clear()
     except ValueError:
-        await message.answer("❌ Введите положительное целое число (без букв и символов):")
+        await message.answer("❌ Введите положительное целое число (только цифры):")
 
 @dp.callback_query(F.data == "admin_promo_list")
 async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
