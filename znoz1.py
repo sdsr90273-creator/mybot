@@ -230,8 +230,8 @@ def increment_attacks(user_id, count=1):
     c.execute("SELECT last_attack_date, daily_attacks FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     if row:
-        last_date = row[0]          # исправлено: было row[8]
-        daily = row[1] if row[1] else 0   # исправлено: было row[7]
+        last_date = row[0]          # исправлено
+        daily = row[1] if row[1] else 0   # исправлено
         if last_date != today:
             daily = 0
         daily += count
@@ -247,9 +247,9 @@ def get_daily_attacks(user_id):
     c.execute("SELECT daily_attacks, last_attack_date FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     conn.close()
-    if not row or row[1] != today:   # исправлено: было row[8]
+    if not row or row[1] != today:   # исправлено
         return 0
-    return row[0] if row[0] else 0   # исправлено: было row[7]
+    return row[0] if row[0] else 0   # исправлено
 
 def add_energy(user_id, amount):
     conn = sqlite3.connect(DB_NAME)
@@ -292,7 +292,7 @@ def get_daily_limit(user_id):
 def can_claim_daily_bonus(user_id):
     row = get_user(user_id)
     if not row: return True
-    bonus_date = row[10]   # исправлено: было row[9]
+    bonus_date = row[10]   # исправлено
     today = datetime.now().date().isoformat()
     return bonus_date != today
 
@@ -932,10 +932,17 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     lang = get_user_language(user_id)
     if not await ensure_subscribed(callback.message, user_id, lang, callback):
         return
+
+    # Проверяем, существует ли пользователь в БД; если нет — создаём
     row = get_user(user_id)
     if not row:
-        await callback.message.edit_text("❌ Профиль не найден.", reply_markup=main_menu(user_id))
-        return
+        add_user(user_id, callback.from_user.username, callback.from_user.first_name, None)
+        row = get_user(user_id)
+        if not row:
+            await callback.message.edit_text("❌ Ошибка создания профиля. Попробуйте /start.", reply_markup=main_menu(user_id))
+            await callback.answer()
+            return
+
     attacks = row[3]
     energy = row[4]
     joined = row[5]
@@ -1008,7 +1015,7 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
 @dp.message(F.text, ~F.text.startswith('/'))
 async def handle_promo_text(message: aiogram_types.Message):
     user_id = message.from_user.id
-    # Добавлена проверка подписки
+    # Проверка подписки
     if not await check_subscription(user_id):
         await message.answer(f"❌ Для использования бота подпишитесь на канал {REQUIRED_CHANNEL}.",
                              reply_markup=InlineKeyboardMarkup(inline_keyboard=[
