@@ -24,7 +24,11 @@ BOT_NAME = "RELEON SNOSSER"
 # ============================================================
 BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
 ADMIN_ID = 8457792268
-REQUIRED_CHANNEL = ""  # укажите канал, если нужна подписка
+
+# ========== ОБЯЗАТЕЛЬНАЯ ПОДПИСКА (укажите свой канал) ==========
+REQUIRED_CHANNEL = ""  # например: "@my_channel" или "-1001234567890"
+# Если канал не указан (пустая строка) – подписка не требуется.
+
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
 VIP_CONTACT = "@sendholders"
@@ -69,9 +73,31 @@ def clean_number_input(text: str) -> str:
     return ''.join(filter(str.isdigit, text))
 
 # ============================================================
-#  БАЗА ДАННЫХ
+#  БАЗА ДАННЫХ (с автоматическим пересозданием, если структура невалидна)
 # ============================================================
 def init_db():
+    db_exists = os.path.exists(DB_NAME)
+    need_recreate = False
+    if db_exists:
+        try:
+            conn = sqlite3.connect(DB_NAME)
+            c = conn.cursor()
+            c.execute("PRAGMA table_info(users)")
+            columns = [row[1] for row in c.fetchall()]
+            required = ['language', 'is_vip_lifetime', 'button_color', 'promo_activations', 'energy_bonus_date', 'referral_energy_bonus']
+            for col in required:
+                if col not in columns:
+                    need_recreate = True
+                    break
+            conn.close()
+        except:
+            need_recreate = True
+
+    if need_recreate:
+        if os.path.exists(DB_NAME):
+            os.remove(DB_NAME)
+            print("🗑️ Старая база данных удалена (несовместимая структура).")
+
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute(f'''CREATE TABLE IF NOT EXISTS users (
@@ -139,7 +165,7 @@ def init_db():
     )''')
     conn.commit()
     conn.close()
-    print("✅ База данных готова")
+    print("✅ База данных готова (структура корректна)")
 
 # ============================================================
 #  ФУНКЦИИ РАБОТЫ С БАЗОЙ ДАННЫХ
@@ -204,8 +230,8 @@ def increment_attacks(user_id, count=1):
     c.execute("SELECT last_attack_date, daily_attacks FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     if row:
-        last_date = row[8]
-        daily = row[7] if row[7] else 0
+        last_date = row[0]          # исправлено: было row[8]
+        daily = row[1] if row[1] else 0   # исправлено: было row[7]
         if last_date != today:
             daily = 0
         daily += count
@@ -221,9 +247,9 @@ def get_daily_attacks(user_id):
     c.execute("SELECT daily_attacks, last_attack_date FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     conn.close()
-    if not row or row[8] != today:
+    if not row or row[1] != today:   # исправлено: было row[8]
         return 0
-    return row[7] if row[7] else 0
+    return row[0] if row[0] else 0   # исправлено: было row[7]
 
 def add_energy(user_id, amount):
     conn = sqlite3.connect(DB_NAME)
@@ -266,7 +292,7 @@ def get_daily_limit(user_id):
 def can_claim_daily_bonus(user_id):
     row = get_user(user_id)
     if not row: return True
-    bonus_date = row[9]
+    bonus_date = row[10]   # исправлено: было row[9]
     today = datetime.now().date().isoformat()
     return bonus_date != today
 
@@ -474,7 +500,7 @@ def get_bonus_for_target(target, targets, bonuses):
     return None
 
 # ============================================================
-#  ПРОВЕРКА ПОДПИСКИ (если нужна)
+#  ПРОВЕРКА ПОДПИСКИ (востановлена)
 # ============================================================
 async def check_subscription(user_id):
     if not REQUIRED_CHANNEL:
@@ -552,6 +578,9 @@ def main_menu(user_id):
     ]
     if is_vip(user_id):
         buttons.append([InlineKeyboardButton(text="🎨 Цвет кнопок", callback_data="change_color")])
+    # Кнопка проверки подписки (если канал задан)
+    if REQUIRED_CHANNEL:
+        buttons.append([InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def back_menu():
@@ -616,12 +645,17 @@ async def start_command(message: aiogram_types.Message):
             referrer_id = row[0]
     add_user(user_id, username, first_name, referrer_id)
     lang = get_user_language(user_id)
-    if REQUIRED_CHANNEL and not await check_subscription(user_id):
-        await message.answer(f"🔴 Подпишитесь на {REQUIRED_CHANNEL}",
-                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                 [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-                             ]))
+
+    # Проверка подписки при старте
+    if not await check_subscription(user_id):
+        await message.answer(
+            f"🔴 Для использования {BOT_NAME} подпишитесь на канал {REQUIRED_CHANNEL}!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
+            ])
+        )
         return
+
     await message.answer(
         f"❄️ Добро пожаловать в {BOT_NAME}!\n\n"
         "Здесь вы можете имитировать жалобы на нарушителей.\n"
@@ -631,16 +665,20 @@ async def start_command(message: aiogram_types.Message):
         reply_markup=main_menu(user_id)
     )
 
+# ---------- ПРОВЕРКА ПОДПИСКИ ----------
 @dp.callback_query(F.data == "check_sub")
 async def check_sub_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
+    lang = get_user_language(user_id)
     if await check_subscription(user_id):
         await callback.message.edit_text("✅ Подписка подтверждена!", reply_markup=main_menu(user_id))
     else:
-        await callback.message.edit_text(f"❌ Вы не подписаны на {REQUIRED_CHANNEL}.",
-                                          reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                              [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-                                          ]))
+        await callback.message.edit_text(
+            f"❌ Вы не подписаны на {REQUIRED_CHANNEL}.\nПодпишитесь и нажмите снова.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
+            ])
+        )
     await callback.answer()
 
 # ---------- БОНУС ----------
@@ -677,6 +715,8 @@ async def premium_info_callback(callback: aiogram_types.CallbackQuery):
 @dp.callback_query(F.data == "buy_vip_energy")
 async def buy_vip_energy_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
+    if not await ensure_subscribed(callback.message, user_id, get_user_language(user_id), callback):
+        return
     if is_vip(user_id):
         await callback.answer("У вас уже есть VIP!", show_alert=True)
         return
@@ -968,6 +1008,13 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
 @dp.message(F.text, ~F.text.startswith('/'))
 async def handle_promo_text(message: aiogram_types.Message):
     user_id = message.from_user.id
+    # Добавлена проверка подписки
+    if not await check_subscription(user_id):
+        await message.answer(f"❌ Для использования бота подпишитесь на канал {REQUIRED_CHANNEL}.",
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                 [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
+                             ]))
+        return
     code = message.text.strip()
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -1045,10 +1092,12 @@ async def copy_ref_link_callback(callback: aiogram_types.CallbackQuery):
 async def back_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
     if not await check_subscription(user_id):
-        await callback.message.edit_text(f"❌ Вы не подписаны на {REQUIRED_CHANNEL}",
-                                          reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                              [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-                                          ]))
+        await callback.message.edit_text(
+            f"❌ Вы не подписаны на {REQUIRED_CHANNEL}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
+            ])
+        )
         await callback.answer()
         return
     await callback.message.edit_text(f"❄️ Главное меню {BOT_NAME}", reply_markup=main_menu(user_id))
@@ -1444,6 +1493,8 @@ async def main():
     asyncio.create_task(weekly_broadcast())
     print(f"🔰 {BOT_NAME} запущен (имитация жалоб, лимит 2/день для обычных)")
     print(f"👑 Админ: {ADMIN_ID}")
+    if REQUIRED_CHANNEL:
+        print(f"📢 Обязательная подписка: {REQUIRED_CHANNEL}")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
