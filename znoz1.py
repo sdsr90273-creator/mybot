@@ -2,7 +2,6 @@ import os
 import asyncio
 import random
 import sqlite3
-import string
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types as aiogram_types
@@ -14,48 +13,16 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# ============================================================
-#  НАЗВАНИЕ БОТА
-# ============================================================
 BOT_NAME = "RELEON SNOSSER"
-
-# ============================================================
-#  НАСТРОЙКИ
-# ============================================================
-BOT_TOKEN = "8610518935:AAHUdNEZ7c32dewRKf_bJ5_UQXBEwfvGa28"
-ADMIN_ID = 8457792268
-
-# ========== ОБЯЗАТЕЛЬНАЯ ПОДПИСКА (укажите свой канал) ==========
-REQUIRED_CHANNEL = ""  # например: "@my_channel" или "-1001234567890"
-# Если канал не указан (пустая строка) – подписка не требуется.
-
+BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # замените!
+ADMIN_ID = 8653940355
+REQUIRED_CHANNEL = "@manyapollice"
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
-VIP_CONTACT = "@sendholders"
-VIP_PRICE = 2500  # энергия для покупки VIP
 
-REFERRAL_TARGETS = [1, 3, 5, 10, 20]
-REFERRAL_BONUSES_ATTACKS = [50, 100, 200, 500, 1000]
-REFERRAL_BONUSES_ENERGY = [20, 40, 80, 200, 400]
-PROMO_TARGETS = [1, 3, 5, 10, 20]
-PROMO_BONUSES_ATTACKS = [50, 100, 200, 500, 1000]
-PROMO_BONUSES_ENERGY = [20, 40, 80, 200, 400]
-VIP_DAYS_FOR_GOAL = 7
-DAILY_BONUS_ATTACKS = 50
-DAILY_BONUS_ENERGY = 10
-REFERRAL_ATTACKS_BONUS = 20
-REFERRAL_ENERGY_BONUS = 20
-START_ENERGY = 100
-
-# ============================================================
-#  НОВЫЙ ДНЕВНОЙ ЛИМИТ (2 для обычных, ∞ для VIP)
-# ============================================================
 DAILY_LIMIT_NORMAL = 2
 DAILY_LIMIT_VIP = float('inf')
 
-# ============================================================
-#  ТИПЫ НАРУШЕНИЙ (для выбора пользователем)
-# ============================================================
 VIOLATION_TYPES = {
     "doxxing": {"emoji": "📛", "label": "Доксинг (личные данные)"},
     "copyright": {"emoji": "©️", "label": "Нарушение авторских прав"},
@@ -63,9 +30,9 @@ VIOLATION_TYPES = {
     "other": {"emoji": "⚠️", "label": "Другое"}
 }
 
-# ============================================================
-#  ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ЧИСЕЛ
-# ============================================================
+COLOR_MAP = {'blue': '🔵', 'green': '🟢', 'red': '🔴', 'yellow': '🟡', 'purple': '🟣'}
+COLOR_NAMES = {'blue': 'Синий', 'green': 'Зелёный', 'red': 'Красный', 'yellow': 'Жёлтый', 'purple': 'Фиолетовый'}
+
 def clean_number_input(text: str) -> str:
     text = text.strip()
     if text.startswith('/'):
@@ -73,55 +40,22 @@ def clean_number_input(text: str) -> str:
     return ''.join(filter(str.isdigit, text))
 
 # ============================================================
-#  БАЗА ДАННЫХ (с автоматическим пересозданием, если структура невалидна)
+#  БАЗА ДАННЫХ
 # ============================================================
 def init_db():
-    db_exists = os.path.exists(DB_NAME)
-    need_recreate = False
-    if db_exists:
-        try:
-            conn = sqlite3.connect(DB_NAME)
-            c = conn.cursor()
-            c.execute("PRAGMA table_info(users)")
-            columns = [row[1] for row in c.fetchall()]
-            required = ['language', 'is_vip_lifetime', 'button_color', 'promo_activations', 'energy_bonus_date', 'referral_energy_bonus']
-            for col in required:
-                if col not in columns:
-                    need_recreate = True
-                    break
-            conn.close()
-        except:
-            need_recreate = True
-
-    if need_recreate:
-        if os.path.exists(DB_NAME):
-            os.remove(DB_NAME)
-            print("🗑️ Старая база данных удалена (несовместимая структура).")
-
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute(f'''CREATE TABLE IF NOT EXISTS users (
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         username TEXT,
         first_name TEXT,
         attacks INTEGER DEFAULT 0,
-        energy INTEGER DEFAULT {START_ENERGY},
         joined_date TEXT,
         is_vip INTEGER DEFAULT 0,
         vip_until TEXT,
         daily_attacks INTEGER DEFAULT 0,
         last_attack_date TEXT,
-        bonus_date TEXT,
-        energy_bonus_date TEXT,
-        referrer_id INTEGER,
-        referral_code TEXT,
-        referrals_count INTEGER DEFAULT 0,
-        referral_attacks_bonus INTEGER DEFAULT 0,
-        referral_energy_bonus INTEGER DEFAULT 0,
-        language TEXT DEFAULT 'ru',
-        is_vip_lifetime INTEGER DEFAULT 0,
-        button_color TEXT DEFAULT 'blue',
-        promo_activations INTEGER DEFAULT 0
+        button_color TEXT DEFAULT 'blue'
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS targets (
         user_id INTEGER,
@@ -134,15 +68,12 @@ def init_db():
         value TEXT
     )''')
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ad_text', 'Реклама не настроена.')")
-    c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('broadcast_enabled', '1')")
-    c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('last_weekly_broadcast', '1970-01-01 00:00:00')")
     c.execute('''CREATE TABLE IF NOT EXISTS promo_codes (
         code TEXT PRIMARY KEY,
         max_uses INTEGER DEFAULT 1,
         used_count INTEGER DEFAULT 0,
         duration_days INTEGER DEFAULT 0,
         attacks_bonus INTEGER DEFAULT 0,
-        energy_bonus INTEGER DEFAULT 0,
         type TEXT DEFAULT 'vip',
         created_by INTEGER,
         created_at TEXT
@@ -158,17 +89,12 @@ def init_db():
         added_by INTEGER,
         added_at TEXT
     )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS referrals (
-        referrer_id INTEGER,
-        referred_id INTEGER PRIMARY KEY,
-        joined_at TEXT
-    )''')
     conn.commit()
     conn.close()
-    print("✅ База данных готова (структура корректна)")
+    print("✅ База данных готова")
 
 # ============================================================
-#  ФУНКЦИИ РАБОТЫ С БАЗОЙ ДАННЫХ
+#  ПОЛЬЗОВАТЕЛИ
 # ============================================================
 def get_user(user_id):
     conn = sqlite3.connect(DB_NAME)
@@ -185,41 +111,16 @@ def update_user_field(user_id, field, value):
     conn.commit()
     conn.close()
 
-def add_user(user_id, username, first_name, referrer_id=None):
+def add_user(user_id, username, first_name):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    c.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
     if c.fetchone():
         conn.close()
         return
-    ref_code = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-    c.execute('''INSERT INTO users (
-        user_id, username, first_name, joined_date, referral_code, referrer_id,
-        language, button_color, promo_activations, energy
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-        (user_id, username or "нет", first_name or "нет",
-         datetime.now().isoformat(), ref_code, referrer_id, 'ru', 'blue', 0, START_ENERGY))
-    if referrer_id:
-        c.execute("UPDATE users SET referrals_count = referrals_count + 1 WHERE user_id = ?", (referrer_id,))
-        c.execute("INSERT INTO referrals (referrer_id, referred_id, joined_at) VALUES (?, ?, ?)",
-                  (referrer_id, user_id, datetime.now().isoformat()))
-        c.execute("UPDATE users SET attacks = attacks + ? WHERE user_id = ?", (REFERRAL_ATTACKS_BONUS, referrer_id))
-        c.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (REFERRAL_ENERGY_BONUS, referrer_id))
-        c.execute("UPDATE users SET referral_attacks_bonus = referral_attacks_bonus + ? WHERE user_id = ?", (REFERRAL_ATTACKS_BONUS, referrer_id))
-        c.execute("UPDATE users SET referral_energy_bonus = referral_energy_bonus + ? WHERE user_id = ?", (REFERRAL_ENERGY_BONUS, referrer_id))
-        c.execute("SELECT referrals_count FROM users WHERE user_id = ?", (referrer_id,))
-        refs = c.fetchone()[0]
-        for i, target in enumerate(REFERRAL_TARGETS):
-            if refs == target:
-                bonus_atk = REFERRAL_BONUSES_ATTACKS[i]
-                bonus_eng = REFERRAL_BONUSES_ENERGY[i]
-                c.execute("UPDATE users SET attacks = attacks + ? WHERE user_id = ?", (bonus_atk, referrer_id))
-                c.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (bonus_eng, referrer_id))
-                c.execute("UPDATE users SET referral_attacks_bonus = referral_attacks_bonus + ? WHERE user_id = ?", (bonus_atk, referrer_id))
-                c.execute("UPDATE users SET referral_energy_bonus = referral_energy_bonus + ? WHERE user_id = ?", (bonus_eng, referrer_id))
-        if refs == 10:
-            vip_until = (datetime.now() + timedelta(days=VIP_DAYS_FOR_GOAL)).isoformat()
-            c.execute("UPDATE users SET is_vip = 1, vip_until = ? WHERE user_id = ?", (vip_until, referrer_id))
+    c.execute('''INSERT INTO users (user_id, username, first_name, joined_date, button_color)
+                 VALUES (?, ?, ?, ?, 'blue')''',
+              (user_id, username or "нет", first_name or "нет", datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
@@ -230,8 +131,7 @@ def increment_attacks(user_id, count=1):
     c.execute("SELECT last_attack_date, daily_attacks FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     if row:
-        last_date = row[0]          # исправлено
-        daily = row[1] if row[1] else 0   # исправлено
+        last_date, daily = row[0], row[1] or 0
         if last_date != today:
             daily = 0
         daily += count
@@ -247,92 +147,55 @@ def get_daily_attacks(user_id):
     c.execute("SELECT daily_attacks, last_attack_date FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     conn.close()
-    if not row or row[1] != today:   # исправлено
+    if not row or row[1] != today:
         return 0
-    return row[0] if row[0] else 0   # исправлено
-
-def add_energy(user_id, amount):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (amount, user_id))
-    conn.commit()
-    conn.close()
-
-def get_energy(user_id):
-    row = get_user(user_id)
-    return row[4] if row else 0
-
-def set_vip(user_id, days):
-    if days == -1:
-        update_user_field(user_id, "is_vip", 1)
-        update_user_field(user_id, "is_vip_lifetime", 1)
-        update_user_field(user_id, "vip_until", None)
-    else:
-        until = (datetime.now() + timedelta(days=days)).isoformat()
-        update_user_field(user_id, "is_vip", 1)
-        update_user_field(user_id, "vip_until", until)
-        update_user_field(user_id, "is_vip_lifetime", 0)
+    return row[0] or 0
 
 def is_vip(user_id):
     row = get_user(user_id)
-    if not row: return False
-    if row[6] == 1:
-        if row[7] is None:
-            return row[18] == 1
-        if datetime.now().isoformat() > row[7]:
+    if not row:
+        return False
+    if row[5] != 1:
+        return False
+    vip_until = row[6]
+    if vip_until is None:
+        return True  # бессрочный VIP
+    try:
+        if datetime.now().isoformat() > vip_until:
             update_user_field(user_id, "is_vip", 0)
             update_user_field(user_id, "vip_until", None)
             return False
         return True
-    return False
+    except:
+        return False
+
+def set_vip(user_id, days):
+    if days == -1:
+        update_user_field(user_id, "is_vip", 1)
+        update_user_field(user_id, "vip_until", None)
+        return True
+    if days <= 0:
+        return False
+    until = (datetime.now() + timedelta(days=days)).isoformat()
+    update_user_field(user_id, "is_vip", 1)
+    update_user_field(user_id, "vip_until", until)
+    return True
 
 def get_daily_limit(user_id):
     return DAILY_LIMIT_VIP if is_vip(user_id) else DAILY_LIMIT_NORMAL
 
-def can_claim_daily_bonus(user_id):
-    row = get_user(user_id)
-    if not row: return True
-    bonus_date = row[10]   # исправлено
-    today = datetime.now().date().isoformat()
-    return bonus_date != today
-
-def claim_daily_bonus(user_id):
-    today = datetime.now().date().isoformat()
-    update_user_field(user_id, "bonus_date", today)
-
-def get_referral_code(user_id):
-    row = get_user(user_id)
-    return row[13] if row else None
-
-def get_referral_stats(user_id):
-    row = get_user(user_id)
-    if row:
-        return row[14], row[15], row[16]
-    return 0, 0, 0
-
-def get_promo_activations(user_id):
-    row = get_user(user_id)
-    return row[20] if row else 0
-
 def get_button_color(user_id):
     row = get_user(user_id)
-    return row[19] if row and row[19] else 'blue'
+    return row[9] if row and row[9] else 'blue'
 
 def set_button_color(user_id, color):
     update_user_field(user_id, "button_color", color)
 
-def get_user_language(user_id):
-    row = get_user(user_id)
-    return row[17] if row else 'ru'
-
-def set_user_language(user_id, lang):
-    update_user_field(user_id, "language", lang)
-
-def add_target_stat(user_id, target):
+def add_target_stat(user_id, target, count=1):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO targets (user_id, target_username, count) VALUES (?, ?, COALESCE((SELECT count FROM targets WHERE user_id=? AND target_username=?), 0)+1)",
-              (user_id, target, user_id, target))
+    c.execute("INSERT OR REPLACE INTO targets (user_id, target_username, count) VALUES (?, ?, COALESCE((SELECT count FROM targets WHERE user_id=? AND target_username=?), 0)+?)",
+              (user_id, target, user_id, target, count))
     conn.commit()
     conn.close()
 
@@ -359,72 +222,6 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-# ============================================================
-#  ПРОМОКОДЫ
-# ============================================================
-def create_promo(code, max_uses, duration_days, attacks_bonus, energy_bonus, promo_type, admin_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO promo_codes (code, max_uses, used_count, duration_days, attacks_bonus, energy_bonus, type, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              (code.lower(), max_uses, 0, duration_days, attacks_bonus, energy_bonus, promo_type, admin_id, datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
-
-def use_promo(user_id, code):
-    code = code.lower()
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT max_uses, used_count, duration_days, attacks_bonus, energy_bonus, type FROM promo_codes WHERE code = ?", (code,))
-    row = c.fetchone()
-    if not row:
-        conn.close()
-        return None, "invalid"
-    max_uses, used_count, duration, atk_bonus, eng_bonus, promo_type = row
-    if used_count >= max_uses:
-        conn.close()
-        return None, "used"
-    c.execute("SELECT * FROM used_promos WHERE user_id = ? AND code = ?", (user_id, code))
-    if c.fetchone():
-        conn.close()
-        return None, "already"
-    c.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (code,))
-    c.execute("INSERT INTO used_promos (user_id, code, used_at) VALUES (?, ?, ?)", (user_id, code, datetime.now().isoformat()))
-    c.execute("UPDATE users SET promo_activations = promo_activations + 1 WHERE user_id = ?", (user_id,))
-    c.execute("SELECT promo_activations FROM users WHERE user_id = ?", (user_id,))
-    activations = c.fetchone()[0]
-    for i, target in enumerate(PROMO_TARGETS):
-        if activations == target:
-            atk = PROMO_BONUSES_ATTACKS[i]
-            eng = PROMO_BONUSES_ENERGY[i]
-            c.execute("UPDATE users SET attacks = attacks + ? WHERE user_id = ?", (atk, user_id))
-            c.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (eng, user_id))
-    if activations == 10:
-        vip_until = (datetime.now() + timedelta(days=VIP_DAYS_FOR_GOAL)).isoformat()
-        c.execute("UPDATE users SET is_vip = 1, vip_until = ? WHERE user_id = ?", (vip_until, user_id))
-    conn.commit()
-    conn.close()
-    if promo_type == "vip":
-        set_vip(user_id, duration)
-        return duration, "vip"
-    elif promo_type == "attacks":
-        increment_attacks(user_id, atk_bonus)
-        return atk_bonus, "attacks"
-    elif promo_type == "energy":
-        add_energy(user_id, eng_bonus)
-        return eng_bonus, "energy"
-    return None, "invalid"
-
-def get_promo_stats():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT code, max_uses, used_count, type, duration_days, attacks_bonus, energy_bonus FROM promo_codes ORDER BY created_at DESC")
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-# ============================================================
-#  ДРУГИЕ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ============================================================
 def get_all_user_ids():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -441,14 +238,9 @@ def get_all_users():
     conn.close()
     return users
 
-def get_energy_top(limit=10):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT user_id, username, energy FROM users ORDER BY energy DESC LIMIT ?", (limit,))
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
+# ============================================================
+#  ЧЁРНЫЙ СПИСОК
+# ============================================================
 def get_blacklist():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -482,26 +274,80 @@ def remove_from_blacklist(username):
 def is_in_blacklist(username):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("SELECT * FROM blacklist WHERE target_username = ?", (username,))
+    c.execute("SELECT 1 FROM blacklist WHERE target_username = ?", (username,))
     row = c.fetchone()
     conn.close()
     return row is not None
 
-def get_next_target(current, targets):
-    for t in targets:
-        if current < t:
-            return t
-    return None
+# ============================================================
+#  ПРОМОКОДЫ
+# ============================================================
+def create_promo(code, max_uses, duration_days, attacks_bonus, promo_type, admin_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO promo_codes (code, max_uses, used_count, duration_days, attacks_bonus, type, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+              (code.lower(), max_uses, 0, duration_days, attacks_bonus, promo_type, admin_id, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
 
-def get_bonus_for_target(target, targets, bonuses):
-    for i, t in enumerate(targets):
-        if t == target:
-            return bonuses[i]
-    return None
+def use_promo(user_id, code):
+    code = code.lower().strip()
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT max_uses, used_count, duration_days, attacks_bonus, type FROM promo_codes WHERE code = ?", (code,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return None, "invalid"
+    max_uses, used_count, duration, atk_bonus, promo_type = row
+    if used_count >= max_uses:
+        conn.close()
+        return None, "used"
+    c.execute("SELECT 1 FROM used_promos WHERE user_id = ? AND code = ?", (user_id, code))
+    if c.fetchone():
+        conn.close()
+        return None, "already"
+    # Проверка бонуса до записи
+    if promo_type == "vip" and duration <= 0:
+        conn.close()
+        return None, "bad_type"
+    if promo_type == "attacks" and atk_bonus <= 0:
+        conn.close()
+        return None, "bad_type"
+    # Записываем использование
+    c.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (code,))
+    c.execute("INSERT INTO used_promos (user_id, code, used_at) VALUES (?, ?, ?)",
+              (user_id, code, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    # Применяем бонус
+    if promo_type == "vip":
+        if set_vip(user_id, duration):
+            return duration, "vip"
+        return None, "bad_type"
+    elif promo_type == "attacks":
+        increment_attacks(user_id, atk_bonus)
+        return atk_bonus, "attacks"
+    return None, "invalid"
+
+def get_promo_stats():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT code, max_uses, used_count, type, duration_days, attacks_bonus FROM promo_codes ORDER BY created_at DESC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 # ============================================================
-#  ПРОВЕРКА ПОДПИСКИ (востановлена)
+#  ПОДПИСКА
 # ============================================================
+def channel_url() -> str:
+    if REQUIRED_CHANNEL.startswith("http"):
+        return REQUIRED_CHANNEL
+    if REQUIRED_CHANNEL.startswith("@"):
+        return f"https://t.me/{REQUIRED_CHANNEL[1:]}"
+    return REQUIRED_CHANNEL
+
 async def check_subscription(user_id):
     if not REQUIRED_CHANNEL:
         return True
@@ -511,12 +357,16 @@ async def check_subscription(user_id):
     except:
         return False
 
-async def ensure_subscribed(message_or_callback, user_id, lang, callback=None):
+def sub_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Подписаться", url=channel_url())],
+        [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_sub")]
+    ])
+
+async def ensure_subscribed(message_or_callback, user_id, callback=None):
     if not await check_subscription(user_id):
-        text = f"🔴 Для использования бота подпишитесь на канал {REQUIRED_CHANNEL}!"
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-        ])
+        text = f"🔴 Подпишитесь на канал {REQUIRED_CHANNEL}!"
+        keyboard = sub_keyboard()
         if callback:
             await callback.message.edit_text(text, reply_markup=keyboard)
             await callback.answer()
@@ -526,10 +376,11 @@ async def ensure_subscribed(message_or_callback, user_id, lang, callback=None):
     return True
 
 # ============================================================
-#  FSM СОСТОЯНИЯ
+#  FSM
 # ============================================================
 class AttackState(StatesGroup):
     waiting_username = State()
+    waiting_count = State()
     waiting_violation = State()
     waiting_link = State()
 
@@ -553,34 +404,39 @@ class AdState(StatesGroup):
     waiting_text = State()
 
 # ============================================================
-#  ИМИТАЦИЯ АТАКИ (без реальной отправки)
+#  ОЧИСТКА СООБЩЕНИЙ
 # ============================================================
-async def attack_bot(target_username, violation_type, link):
+async def cleanup_state_messages(chat_id, message_ids):
+    for mid in message_ids:
+        try:
+            await bot.delete_message(chat_id, mid)
+        except:
+            pass
+
+# ============================================================
+#  ИМИТАЦИЯ АТАКИ
+# ============================================================
+async def attack_bot(target_username, count, violation_type, link):
     await asyncio.sleep(random.uniform(2, 4))
-    total = random.randint(20, 50)
-    successful = int(total * random.uniform(0.7, 0.95))
-    return successful, total
+    successful = int(count * random.uniform(0.7, 0.95))
+    return successful, count
 
 # ============================================================
 #  КЛАВИАТУРЫ
 # ============================================================
 def main_menu(user_id):
+    color = get_button_color(user_id)
+    emoji = COLOR_MAP.get(color, '🔵')
     buttons = [
-        [InlineKeyboardButton(text="❄️ Атака", callback_data="attack")],
-        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
-        [InlineKeyboardButton(text="🎁 Бонус (+50 атак +10 энергии)", callback_data="claim_bonus")],
-        [InlineKeyboardButton(text="💎 Премиум", callback_data="premium_info")],
-        [InlineKeyboardButton(text="👥 Рефералы", callback_data="ref_system")],
-        [InlineKeyboardButton(text="🏆 Рейтинг атак", callback_data="rating_attacks")],
-        [InlineKeyboardButton(text="⚡ Рейтинг энергии", callback_data="rating_energy")],
-        [InlineKeyboardButton(text="📊 Моя статистика", callback_data="my_stats")],
-        [InlineKeyboardButton(text="📢 Реклама", callback_data="advertisement")],
+        [InlineKeyboardButton(text=f"{emoji} Атака", callback_data="attack")],
+        [InlineKeyboardButton(text=f"{emoji} Профиль", callback_data="profile")],
+        [InlineKeyboardButton(text=f"{emoji} Рейтинг атак", callback_data="rating_attacks")],
+        [InlineKeyboardButton(text=f"{emoji} Моя статистика", callback_data="my_stats")],
     ]
     if is_vip(user_id):
-        buttons.append([InlineKeyboardButton(text="🎨 Цвет кнопок", callback_data="change_color")])
-    # Кнопка проверки подписки (если канал задан)
+        buttons.append([InlineKeyboardButton(text=f"{emoji} Цвет кнопок", callback_data="change_color")])
     if REQUIRED_CHANNEL:
-        buttons.append([InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")])
+        buttons.append([InlineKeyboardButton(text=f"{emoji} Проверить подписку", callback_data="check_sub")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def back_menu():
@@ -600,10 +456,9 @@ def admin_menu():
     ])
 
 def color_choose_keyboard():
-    colors = ['🔵 Синий', '🟢 Зелёный', '🔴 Красный', '🟡 Жёлтый', '🟣 Фиолетовый']
     kb = []
-    for color in colors:
-        kb.append([InlineKeyboardButton(text=color, callback_data=f"color_{color.split()[1]}")])
+    for key, emoji in COLOR_MAP.items():
+        kb.append([InlineKeyboardButton(text=f"{emoji} {COLOR_NAMES[key]}", callback_data=f"color_{key}")])
     kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -611,236 +466,99 @@ def promo_type_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="VIP", callback_data="promo_type_vip")],
         [InlineKeyboardButton(text="Атаки", callback_data="promo_type_attacks")],
-        [InlineKeyboardButton(text="Энергия", callback_data="promo_type_energy")],
         [InlineKeyboardButton(text="🔙 Отмена", callback_data="back")]
     ])
 
+def count_keyboard():
+    counts = [1, 5, 10, 50, 100, 150, 200, 250, 300]
+    kb = []
+    row = []
+    for c in counts:
+        row.append(InlineKeyboardButton(text=str(c), callback_data=f"count_{c}"))
+        if len(row) == 3:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    kb.append([InlineKeyboardButton(text="✏️ Ввести вручную", callback_data="count_manual")])
+    kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
 # ============================================================
-#  ОСНОВНОЙ БОТ
+#  БОТ
 # ============================================================
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 # ============================================================
-#  ОБРАБОТЧИКИ
+#  СТАРТ
 # ============================================================
-
-# ---------- СТАРТ ----------
 @dp.message(CommandStart())
-async def start_command(message: aiogram_types.Message):
+async def start_command(message: aiogram_types.Message, state: FSMContext):
     user_id = message.from_user.id
-    username = message.from_user.username
-    first_name = message.from_user.first_name
-    referrer_id = None
-    args = message.text.split()
-    if len(args) > 1 and args[1].startswith('ref_'):
-        ref_code = args[1][4:]
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM users WHERE referral_code = ?", (ref_code,))
-        row = c.fetchone()
-        conn.close()
-        if row and row[0] != user_id:
-            referrer_id = row[0]
-    add_user(user_id, username, first_name, referrer_id)
-    lang = get_user_language(user_id)
-
-    # Проверка подписки при старте
+    await state.clear()
+    try:
+        await message.delete()
+    except:
+        pass
+    add_user(user_id, message.from_user.username, message.from_user.first_name)
     if not await check_subscription(user_id):
         await message.answer(
             f"🔴 Для использования {BOT_NAME} подпишитесь на канал {REQUIRED_CHANNEL}!",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-            ])
+            reply_markup=sub_keyboard()
         )
         return
-
     await message.answer(
         f"❄️ Добро пожаловать в {BOT_NAME}!\n\n"
-        "Здесь вы можете отправлять жалобы на нарушителей.\n"
-        "Выбирайте тип нарушения, добавляйте ссылку и наблюдайте за результатом.\n\n"
-        "⚠️ Обычные пользователи могут атаковать только 2 раза в день.\n"
+        "Выбирайте тип нарушения, указывайте количество жалоб (до 300) и ссылку.\n\n"
+        "⚠️ Обычные пользователи — 2 атаки в день.\n"
         "💎 VIP — безлимит.",
         reply_markup=main_menu(user_id)
     )
 
-# ---------- ПРОВЕРКА ПОДПИСКИ ----------
 @dp.callback_query(F.data == "check_sub")
 async def check_sub_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
-    lang = get_user_language(user_id)
     if await check_subscription(user_id):
         await callback.message.edit_text("✅ Подписка подтверждена!", reply_markup=main_menu(user_id))
     else:
         await callback.message.edit_text(
             f"❌ Вы не подписаны на {REQUIRED_CHANNEL}.\nПодпишитесь и нажмите снова.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-            ])
+            reply_markup=sub_keyboard()
         )
     await callback.answer()
 
-# ---------- БОНУС ----------
-@dp.callback_query(F.data == "claim_bonus")
-async def claim_bonus_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
-        return
-    if not can_claim_daily_bonus(user_id):
-        await callback.answer("❌ Вы уже получили бонус сегодня!", show_alert=True)
-        return
-    claim_daily_bonus(user_id)
-    increment_attacks(user_id, DAILY_BONUS_ATTACKS)
-    add_energy(user_id, DAILY_BONUS_ENERGY)
-    await callback.message.edit_text(f"🎁 Вы получили +{DAILY_BONUS_ATTACKS} атак и +{DAILY_BONUS_ENERGY} энергии на сегодня!", reply_markup=main_menu(user_id))
-    await callback.answer()
-
-# ---------- ПРЕМИУМ ----------
-@dp.callback_query(F.data == "premium_info")
-async def premium_info_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
-        return
-    text = f"💎 Премиум подписка\n\nЦена: {VIP_PRICE} энергии (навсегда)\n\nПреимущества:\n✅ Безлимитные атаки\n✅ Ежедневный бонус +50 атак и +10 энергии\n✅ Приоритетная поддержка\n✅ Кастомизация интерфейса\n\nДля покупки нажмите кнопку ниже."
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⭐ Купить VIP за энергию", callback_data="buy_vip_energy")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back")]
-    ])
-    await callback.message.edit_text(text, reply_markup=keyboard)
-    await callback.answer()
-
-@dp.callback_query(F.data == "buy_vip_energy")
-async def buy_vip_energy_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    if not await ensure_subscribed(callback.message, user_id, get_user_language(user_id), callback):
-        return
-    if is_vip(user_id):
-        await callback.answer("У вас уже есть VIP!", show_alert=True)
-        return
-    energy = get_energy(user_id)
-    if energy < VIP_PRICE:
-        await callback.answer(f"❌ Недостаточно энергии! Нужно {VIP_PRICE}, у вас {energy}.", show_alert=True)
-        return
-    update_user_field(user_id, "energy", energy - VIP_PRICE)
-    set_vip(user_id, -1)
-    await callback.message.edit_text("🎉 Поздравляем! Вы купили VIP навсегда!", reply_markup=main_menu(user_id))
-    await callback.answer()
-
-# ---------- РЕЙТИНГИ ----------
-@dp.callback_query(F.data == "rating_attacks")
-async def rating_attacks_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
-        return
-    users = get_all_users()
-    if not users:
-        await callback.message.edit_text("🏆 Рейтинг атак пуст.", reply_markup=back_menu())
-        return
-    top = ""
-    for i, (uid, username, attacks) in enumerate(users[:10], 1):
-        uname = f"@{username}" if username and username != "нет" else f"ID{uid}"
-        top += f"{i}. {uname} — {attacks} атак\n"
-    await callback.message.edit_text(f"🏆 ГЛОБАЛЬНЫЙ РЕЙТИНГ (по атакам):\n\n{top}", reply_markup=back_menu())
-    await callback.answer()
-
-@dp.callback_query(F.data == "rating_energy")
-async def rating_energy_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
-        return
-    top = get_energy_top(10)
-    if not top:
-        await callback.message.edit_text("⚡ Рейтинг энергии пуст.", reply_markup=back_menu())
-        return
-    text = "⚡ ГЛОБАЛЬНЫЙ РЕЙТИНГ (по энергии):\n\n"
-    for i, (uid, username, energy) in enumerate(top, 1):
-        uname = f"@{username}" if username and username != "нет" else f"ID{uid}"
-        text += f"{i}. {uname} — {energy}⚡\n"
-    await callback.message.edit_text(text, reply_markup=back_menu())
-    await callback.answer()
-
-# ---------- МОЯ СТАТИСТИКА ----------
-@dp.callback_query(F.data == "my_stats")
-async def my_stats_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
-        return
-    targets = get_user_targets(user_id)
-    if not targets:
-        await callback.message.edit_text("Вы ещё никого не атаковали.", reply_markup=back_menu())
-        return
-    lines = []
-    total = 0
-    for target, count in targets:
-        lines.append(f"@{target} — {count} раз")
-        total += count
-    await callback.message.edit_text(f"📊 Ваша статистика:\n" + "\n".join(lines) + f"\n\nВсего атак: {total}", reply_markup=back_menu())
-    await callback.answer()
-
-# ---------- РЕКЛАМА ----------
-@dp.callback_query(F.data == "advertisement")
-async def ad_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
-        return
-    ad_text = get_setting('ad_text') or "Реклама не настроена."
-    await callback.message.edit_text(f"📢 {ad_text}", reply_markup=back_menu())
-    await callback.answer()
-
-# ---------- ЦВЕТ ----------
-@dp.callback_query(F.data == "change_color")
-async def change_color_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
-        return
-    if not is_vip(user_id):
-        await callback.answer("Только для VIP!", show_alert=True)
-        return
-    await callback.message.edit_text("🎨 Выберите цвет:", reply_markup=color_choose_keyboard())
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("color_"))
-async def set_color_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    color = callback.data.split("_")[1]
-    set_button_color(user_id, color)
-    await callback.message.edit_text(f"✅ Цвет кнопок изменён на {color}.", reply_markup=main_menu(user_id))
-    await callback.answer()
-
 # ============================================================
-#  НОВАЯ АТАКА (с выбором нарушения и ссылкой)
+#  АТАКА
 # ============================================================
 @dp.callback_query(F.data == "attack")
 async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
     limit = get_daily_limit(user_id)
     daily = get_daily_attacks(user_id)
     if daily >= limit:
         await callback.answer(f"❌ Дневной лимит ({limit}) исчерпан. Купите VIP для безлимита.", show_alert=True)
         return
-    await callback.message.edit_text("🎯 Введите username цели (без @):", reply_markup=back_menu())
+    await state.update_data(step_messages=[])
+    msg = await callback.message.edit_text("🎯 Введите username цели (без @):", reply_markup=back_menu())
+    await state.update_data(step_messages=[msg.message_id])
     await state.set_state(AttackState.waiting_username)
     await callback.answer()
 
 @dp.message(AttackState.waiting_username)
 async def attack_username(message: aiogram_types.Message, state: FSMContext):
     user_id = message.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(message, user_id, lang):
+    if not await ensure_subscribed(message, user_id):
         await state.clear()
         return
-    target = message.text.strip()
+    target = message.text.strip().lstrip('@')
+    try:
+        await message.delete()
+    except:
+        pass
     if not target:
         await message.answer("❌ Неверный username", reply_markup=main_menu(user_id))
         await state.clear()
@@ -853,39 +571,82 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
         await message.answer(f"⛔ {PROTECTED_BOT} под защитой.", reply_markup=main_menu(user_id))
         await state.clear()
         return
-    limit = get_daily_limit(user_id)
-    daily = get_daily_attacks(user_id)
-    if daily >= limit:
-        await message.answer(f"❌ Лимит исчерпан.", reply_markup=main_menu(user_id))
-        await state.clear()
+    data = await state.get_data()
+    step_msgs = data.get("step_messages", [])
+    msg = await message.answer("Сколько жалоб отправить? (1–300):", reply_markup=count_keyboard())
+    step_msgs.append(msg.message_id)
+    await state.update_data(target=target, step_messages=step_msgs)
+    await state.set_state(AttackState.waiting_count)
+
+@dp.callback_query(F.data.startswith("count_"), AttackState.waiting_count)
+async def attack_count_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    data = callback.data
+    if data == "count_manual":
+        await callback.message.edit_text("Введите число от 1 до 300:", reply_markup=back_menu())
         return
-    await state.update_data(target=target)
+    try:
+        count = int(data.split("_")[1])
+    except:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    if count < 1 or count > 300:
+        await callback.answer("Число должно быть от 1 до 300", show_alert=True)
+        return
+    await state.update_data(count=count)
+    await show_violation_menu(callback.message, state)
+    await callback.answer()
+
+@dp.message(AttackState.waiting_count)
+async def attack_count_manual(message: aiogram_types.Message, state: FSMContext):
+    cleaned = clean_number_input(message.text)
+    try:
+        await message.delete()
+    except:
+        pass
+    if not cleaned:
+        await message.answer("❌ Введите число от 1 до 300:")
+        return
+    count = int(cleaned)
+    if count < 1 or count > 300:
+        await message.answer("❌ Число должно быть от 1 до 300:")
+        return
+    await state.update_data(count=count)
+    await show_violation_menu(message, state)
+
+async def show_violation_menu(message, state: FSMContext):
+    data = await state.get_data()
+    step_msgs = data.get("step_messages", [])
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"{v['emoji']} {v['label']}", callback_data=f"violation_{k}")]
         for k, v in VIOLATION_TYPES.items()
-    ])
-    await message.answer("Выберите тип нарушения:", reply_markup=kb)
+    ] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="back")]])
+    msg = await message.answer("Выберите тип нарушения:", reply_markup=kb)
+    step_msgs.append(msg.message_id)
+    await state.update_data(step_messages=step_msgs)
     await state.set_state(AttackState.waiting_violation)
 
-@dp.callback_query(F.data.startswith("violation_"))
+@dp.callback_query(F.data.startswith("violation_"), AttackState.waiting_violation)
 async def attack_violation(callback: aiogram_types.CallbackQuery, state: FSMContext):
     violation_type = callback.data.split("_")[1]
     await state.update_data(violation=violation_type)
+    data = await state.get_data()
+    step_msgs = data.get("step_messages", [])
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📎 Вставить ссылку", callback_data="link_enter")],
-        [InlineKeyboardButton(text="⏭️ Пропустить (без ссылки)", callback_data="link_skip")]
+        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="link_skip")]
     ])
-    await callback.message.edit_text("Введите ссылку на нарушение (или пропустите):", reply_markup=kb)
+    msg = await callback.message.edit_text("Введите ссылку на нарушение (или пропустите):", reply_markup=kb)
+    step_msgs.append(msg.message_id)
+    await state.update_data(step_messages=step_msgs)
     await state.set_state(AttackState.waiting_link)
     await callback.answer()
 
-@dp.callback_query(F.data == "link_enter")
+@dp.callback_query(F.data == "link_enter", AttackState.waiting_link)
 async def attack_link_enter(callback: aiogram_types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Введите ссылку (например, на пост или канал):", reply_markup=back_menu())
-    await state.set_state(AttackState.waiting_link)
+    await callback.message.edit_text("Введите ссылку:", reply_markup=back_menu())
     await callback.answer()
 
-@dp.callback_query(F.data == "link_skip")
+@dp.callback_query(F.data == "link_skip", AttackState.waiting_link)
 async def attack_link_skip(callback: aiogram_types.CallbackQuery, state: FSMContext):
     await state.update_data(link="без ссылки")
     await finish_attack(callback.message, state, callback.from_user.id, callback)
@@ -893,19 +654,24 @@ async def attack_link_skip(callback: aiogram_types.CallbackQuery, state: FSMCont
 @dp.message(AttackState.waiting_link)
 async def attack_link_input(message: aiogram_types.Message, state: FSMContext):
     link = message.text.strip()
+    try:
+        await message.delete()
+    except:
+        pass
     await state.update_data(link=link or "без ссылки")
-    await finish_attack(message, state, message.from_user.id, None)
+    await finish_attack(message, state, message.from_user.id)
 
-async def finish_attack(message_or_callback, state, user_id, callback=None):
+async def finish_attack(message_or_callback, state: FSMContext, user_id, callback=None):
     data = await state.get_data()
     target = data.get("target")
     violation = data.get("violation")
     link = data.get("link", "без ссылки")
+    count = data.get("count", 1)
+    step_msgs = data.get("step_messages", [])
 
-    # Имитация
-    successful, total = await attack_bot(target, violation, link)
-    increment_attacks(user_id)
-    add_target_stat(user_id, target)
+    successful, total = await attack_bot(target, count, violation, link)
+    increment_attacks(user_id, count)
+    add_target_stat(user_id, target, count)
 
     violation_label = VIOLATION_TYPES.get(violation, {}).get("label", "Неизвестно")
     result = (
@@ -921,6 +687,7 @@ async def finish_attack(message_or_callback, state, user_id, callback=None):
         await callback.answer()
     else:
         await message_or_callback.answer(result, reply_markup=main_menu(user_id))
+    await cleanup_state_messages(message_or_callback.chat.id if hasattr(message_or_callback, 'chat') else callback.message.chat.id, step_msgs)
     await state.clear()
 
 # ============================================================
@@ -929,51 +696,36 @@ async def finish_attack(message_or_callback, state, user_id, callback=None):
 @dp.callback_query(F.data == "profile")
 async def profile_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
-
-    # Проверяем, существует ли пользователь в БД; если нет — создаём
     row = get_user(user_id)
     if not row:
-        add_user(user_id, callback.from_user.username, callback.from_user.first_name, None)
+        add_user(user_id, callback.from_user.username, callback.from_user.first_name)
         row = get_user(user_id)
-        if not row:
-            await callback.message.edit_text("❌ Ошибка создания профиля. Попробуйте /start.", reply_markup=main_menu(user_id))
-            await callback.answer()
-            return
-
     attacks = row[3]
-    energy = row[4]
-    joined = row[5]
-    vip_status = "✅ Активен" if is_vip(user_id) else "❌ Неактивен"
+    vip_status = "✅" if is_vip(user_id) else "❌"
+    vip_until = row[6]
+    if is_vip(user_id):
+        if vip_until is None:
+            vip_status = "✅ (навсегда)"
+        else:
+            try:
+                dt = datetime.fromisoformat(vip_until)
+                vip_status = f"✅ до {dt.strftime('%d.%m.%Y')}"
+            except:
+                vip_status = "✅"
     daily = get_daily_attacks(user_id)
     limit = get_daily_limit(user_id)
     limit_display = "∞" if limit == float('inf') else str(limit)
-    bonus_available = "Да" if can_claim_daily_bonus(user_id) else "Нет"
-    refs, bonus_atk, bonus_eng = get_referral_stats(user_id)
     color = get_button_color(user_id)
-    joined_date = datetime.strptime(joined[:10], "%Y-%m-%d").strftime("%d.%m.%Y") if len(joined) >= 10 else joined[:10]
-    promo_acts = get_promo_activations(user_id)
-    ref_next = get_next_target(refs, REFERRAL_TARGETS)
-    ref_next_str = f"{ref_next} реф. → +{get_bonus_for_target(ref_next, REFERRAL_TARGETS, REFERRAL_BONUSES_ATTACKS)} атак, +{get_bonus_for_target(ref_next, REFERRAL_TARGETS, REFERRAL_BONUSES_ENERGY)} энергии" if ref_next else "Все цели достигнуты"
-    promo_next = get_next_target(promo_acts, PROMO_TARGETS)
-    promo_next_str = f"{promo_next} акт. → +{get_bonus_for_target(promo_next, PROMO_TARGETS, PROMO_BONUSES_ATTACKS)} атак, +{get_bonus_for_target(promo_next, PROMO_TARGETS, PROMO_BONUSES_ENERGY)} энергии" if promo_next else "Все цели достигнуты"
-    text = (f"👤 Мой профиль\n\n"
-            f"🆔 ID: <code>{user_id}</code>\n"
-            f"👤 Имя: {row[2]}\n"
-            f"📛 Юзернейм: @{row[1]}\n"
-            f"❄️ Всего атак: {attacks}\n"
-            f"⚡ Энергия: {energy}\n"
-            f"📆 Сегодня: {daily}/{limit_display}\n"
-            f"💎 VIP: {vip_status}\n"
-            f"🎁 Бонус сегодня: {bonus_available}\n"
-            f"📅 Регистрация: {joined_date}\n"
-            f"👥 Рефералов: {refs} (бонусов: {bonus_atk} атак, {bonus_eng} энергии)\n"
-            f"🎯 След. цель реф.: {ref_next_str}\n"
-            f"🎫 Активаций промо: {promo_acts}\n"
-            f"🎯 След. цель промо: {promo_next_str}\n"
-            f"🎨 Цвет кнопок: {color}")
+    text = (
+        f"👤 Профиль\n\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"❄️ Атак: {attacks}\n"
+        f"📆 Сегодня: {daily}/{limit_display}\n"
+        f"💎 VIP: {vip_status}\n"
+        f"🎨 Цвет: {COLOR_MAP.get(color, '🔵')} {COLOR_NAMES.get(color, color)}"
+    )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎫 Ввести промокод", callback_data="enter_promo")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back")]
@@ -981,129 +733,194 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
-# ---------- ПРОМОКОД (ввод) ----------
+# ============================================================
+#  ПРОМОКОД (ввод)
+# ============================================================
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
-    await callback.message.edit_text("Введите промокод:", reply_markup=back_menu())
+    msg = await callback.message.edit_text("Введите промокод:", reply_markup=back_menu())
+    await state.update_data(promo_msg=msg.message_id)
     await state.set_state(PromoState.waiting_code)
     await callback.answer()
 
 @dp.message(PromoState.waiting_code)
 async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
     user_id = message.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(message, user_id, lang):
+    if not await ensure_subscribed(message, user_id):
         await state.clear()
         return
     code = message.text.strip()
+    try:
+        await message.delete()
+    except:
+        pass
+    data = await state.get_data()
+    promo_msg = data.get("promo_msg")
+    if promo_msg:
+        try:
+            await bot.delete_message(message.chat.id, promo_msg)
+        except:
+            pass
     result, typ = use_promo(user_id, code)
     if result is None:
-        await message.answer("❌ Код не найден или уже использован.", reply_markup=main_menu(user_id))
+        if typ == "invalid":
+            await message.answer("❌ Промокод не найден.", reply_markup=main_menu(user_id))
+        elif typ == "used":
+            await message.answer("❌ Промокод уже закончился (лимит использований).", reply_markup=main_menu(user_id))
+        elif typ == "already":
+            await message.answer("❌ Вы уже использовали этот промокод.", reply_markup=main_menu(user_id))
+        elif typ == "bad_type":
+            await message.answer("❌ Ошибка в настройках промокода (неверный бонус). Обратитесь к админу.", reply_markup=main_menu(user_id))
+        else:
+            await message.answer("❌ Не удалось активировать промокод.", reply_markup=main_menu(user_id))
     else:
         if typ == "vip":
-            await message.answer(f"✅ VIP активирован на {result} дней!", reply_markup=main_menu(user_id))
+            row = get_user(user_id)
+            vip_until = row[6] if row else None
+            if vip_until is None:
+                until_str = "навсегда"
+            else:
+                try:
+                    until_str = datetime.fromisoformat(vip_until).strftime('%d.%m.%Y')
+                except:
+                    until_str = "?"
+            await message.answer(f"✅ VIP активирован на {result} дней (до {until_str})!", reply_markup=main_menu(user_id))
         elif typ == "attacks":
             await message.answer(f"✅ Вам начислено {result} атак!", reply_markup=main_menu(user_id))
-        elif typ == "energy":
-            await message.answer(f"✅ Вам начислено {result} энергии!", reply_markup=main_menu(user_id))
     await state.clear()
 
 @dp.message(F.text, ~F.text.startswith('/'))
-async def handle_promo_text(message: aiogram_types.Message):
+async def handle_text(message: aiogram_types.Message):
     user_id = message.from_user.id
-    # Проверка подписки
     if not await check_subscription(user_id):
-        await message.answer(f"❌ Для использования бота подпишитесь на канал {REQUIRED_CHANNEL}.",
-                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                 [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-                             ]))
+        await message.answer(f"❌ Подпишитесь на {REQUIRED_CHANNEL}.", reply_markup=sub_keyboard())
         return
     code = message.text.strip()
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("SELECT code FROM promo_codes WHERE code = ?", (code.lower(),))
-    row = c.fetchone()
-    conn.close()
-    if row:
+    c.execute("SELECT 1 FROM promo_codes WHERE code = ?", (code.lower(),))
+    if c.fetchone():
+        conn.close()
         result, typ = use_promo(user_id, code)
+        try:
+            await message.delete()
+        except:
+            pass
         if result is None:
-            await message.answer("❌ Код не найден или уже использован.", reply_markup=main_menu(user_id))
+            if typ == "invalid":
+                await message.answer("❌ Промокод не найден.", reply_markup=main_menu(user_id))
+            elif typ == "used":
+                await message.answer("❌ Промокод уже закончился.", reply_markup=main_menu(user_id))
+            elif typ == "already":
+                await message.answer("❌ Вы уже использовали этот промокод.", reply_markup=main_menu(user_id))
+            elif typ == "bad_type":
+                await message.answer("❌ Ошибка в настройках промокода.", reply_markup=main_menu(user_id))
         else:
             if typ == "vip":
-                await message.answer(f"✅ VIP активирован на {result} дней!", reply_markup=main_menu(user_id))
+                row = get_user(user_id)
+                vip_until = row[6] if row else None
+                if vip_until is None:
+                    until_str = "навсегда"
+                else:
+                    try:
+                        until_str = datetime.fromisoformat(vip_until).strftime('%d.%m.%Y')
+                    except:
+                        until_str = "?"
+                await message.answer(f"✅ VIP активирован на {result} дней (до {until_str})!", reply_markup=main_menu(user_id))
             elif typ == "attacks":
                 await message.answer(f"✅ Вам начислено {result} атак!", reply_markup=main_menu(user_id))
-            elif typ == "energy":
-                await message.answer(f"✅ Вам начислено {result} энергии!", reply_markup=main_menu(user_id))
+    else:
+        conn.close()
 
-# ---------- РЕФЕРАЛЫ ----------
-@dp.callback_query(F.data == "ref_system")
-async def ref_system_callback(callback: aiogram_types.CallbackQuery):
+# ============================================================
+#  РЕЙТИНГ
+# ============================================================
+@dp.callback_query(F.data == "rating_attacks")
+async def rating_attacks_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
-    lang = get_user_language(user_id)
-    if not await ensure_subscribed(callback.message, user_id, lang, callback):
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
-    ref_code = get_referral_code(user_id)
-    if not ref_code:
-        await callback.message.edit_text("❌ Ошибка генерации ссылки. Попробуйте позже.", reply_markup=back_menu())
-        await callback.answer()
+    users = get_all_users()
+    if not users:
+        await callback.message.edit_text("🏆 Рейтинг пуст.", reply_markup=back_menu())
         return
-    me = await bot.get_me()
-    if me.username:
-        link = f"https://t.me/{me.username}?start=ref_{ref_code}"
-    else:
-        link = f"https://t.me/{me.id}?start=ref_{ref_code}"
-    refs, bonus_atk, bonus_eng = get_referral_stats(user_id)
-    vip_ref_status = "✅ Активен (VIP на 7 дней)" if is_vip(user_id) else "❌ Не активен"
-    next_target = get_next_target(refs, REFERRAL_TARGETS)
-    if next_target:
-        atk = get_bonus_for_target(next_target, REFERRAL_TARGETS, REFERRAL_BONUSES_ATTACKS)
-        eng = get_bonus_for_target(next_target, REFERRAL_TARGETS, REFERRAL_BONUSES_ENERGY)
-        next_info = f"🎯 Следующая цель: {next_target} рефералов → +{atk} атак, +{eng} энергии"
-    else:
-        next_info = "🏁 Все цели достигнуты!"
-    text = (f"👥 Реферальная система\n\n"
-            f"Ваша ссылка:\n{link}\n\n"
-            f"Приглашено: {refs} человек\n"
-            f"Бонусов получено: {bonus_atk} атак, {bonus_eng} энергии\n"
-            f"VIP за 10 рефералов: {vip_ref_status}\n"
-            f"{next_info}")
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Скопировать ссылку", callback_data="copy_ref_link")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back")]
-    ])
-    await callback.message.edit_text(text, reply_markup=keyboard)
+    top = ""
+    for i, (uid, username, attacks) in enumerate(users[:10], 1):
+        uname = f"@{username}" if username and username != "нет" else f"ID{uid}"
+        top += f"{i}. {uname} — {attacks} атак\n"
+    await callback.message.edit_text(f"🏆 РЕЙТИНГ ПО АТАКАМ:\n\n{top}", reply_markup=back_menu())
     await callback.answer()
 
-@dp.callback_query(F.data == "copy_ref_link")
-async def copy_ref_link_callback(callback: aiogram_types.CallbackQuery):
+# ============================================================
+#  СТАТИСТИКА
+# ============================================================
+@dp.callback_query(F.data == "my_stats")
+async def my_stats_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
-    ref_code = get_referral_code(user_id)
-    if not ref_code:
-        await callback.answer("Ошибка", show_alert=True)
+    if not await ensure_subscribed(callback.message, user_id, callback):
         return
-    me = await bot.get_me()
-    if me.username:
-        link = f"https://t.me/{me.username}?start=ref_{ref_code}"
-    else:
-        link = f"https://t.me/{me.id}?start=ref_{ref_code}"
-    await callback.message.answer(f"Ваша реферальная ссылка:\n`{link}`", parse_mode=ParseMode.MARKDOWN)
+    targets = get_user_targets(user_id)
+    if not targets:
+        await callback.message.edit_text("Вы ещё никого не атаковали.", reply_markup=back_menu())
+        return
+    lines = []
+    total = 0
+    for target, count in targets:
+        lines.append(f"@{target} — {count} раз")
+        total += count
+    await callback.message.edit_text(f"📊 Статистика:\n" + "\n".join(lines) + f"\n\nВсего атак: {total}", reply_markup=back_menu())
     await callback.answer()
 
-# ---------- НАЗАД ----------
+# ============================================================
+#  ЦВЕТ КНОПОК
+# ============================================================
+@dp.callback_query(F.data == "change_color")
+async def change_color_callback(callback: aiogram_types.CallbackQuery):
+    user_id = callback.from_user.id
+    if not await ensure_subscribed(callback.message, user_id, callback):
+        return
+    if not is_vip(user_id):
+        await callback.answer("Только для VIP!", show_alert=True)
+        return
+    await callback.message.edit_text("🎨 Выберите цвет:", reply_markup=color_choose_keyboard())
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("color_"))
+async def set_color_callback(callback: aiogram_types.CallbackQuery):
+    user_id = callback.from_user.id
+    if not await ensure_subscribed(callback.message, user_id, callback):
+        return
+    if not is_vip(user_id):
+        await callback.answer("Только для VIP!", show_alert=True)
+        return
+    color = callback.data.split("_")[1]
+    if color not in COLOR_MAP:
+        await callback.answer("Неверный цвет", show_alert=True)
+        return
+    set_button_color(user_id, color)
+    await callback.message.edit_text(
+        f"✅ Цвет кнопок изменён на {COLOR_MAP[color]} {COLOR_NAMES[color]}.",
+        reply_markup=main_menu(user_id)
+    )
+    await callback.answer()
+
+# ============================================================
+#  НАЗАД
+# ============================================================
 @dp.callback_query(F.data == "back")
-async def back_callback(callback: aiogram_types.CallbackQuery):
+async def back_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
+    data = await state.get_data()
+    step_msgs = data.get("step_messages", [])
+    await state.clear()
+    await cleanup_state_messages(callback.message.chat.id, step_msgs)
     if not await check_subscription(user_id):
         await callback.message.edit_text(
             f"❌ Вы не подписаны на {REQUIRED_CHANNEL}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📢 Проверить подписку", callback_data="check_sub")]
-            ])
+            reply_markup=sub_keyboard()
         )
         await callback.answer()
         return
@@ -1118,6 +935,10 @@ async def admin_command(message: aiogram_types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("⛔ Нет доступа")
         return
+    try:
+        await message.delete()
+    except:
+        pass
     await message.answer("👑 АДМИН ПАНЕЛЬ", reply_markup=admin_menu())
 
 @dp.callback_query(F.data == "admin_stats")
@@ -1131,8 +952,8 @@ async def admin_stats_callback(callback: aiogram_types.CallbackQuery):
     for uid, username, attacks in users[:10]:
         uname = f"@{username}" if username != "нет" else "БЕЗ ЮЗЕРНЕЙМА"
         top += f"• <code>{uid}</code> ({uname}) — {attacks} атак\n"
-    text = f"📊 СТАТИСТИКА\n\n👥 Всего пользователей: {len(users)}\n🎫 Промокодов: {len(promos)}\n\n🏆 ТОП-10 (атаки):\n{top}"
-    await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=back_menu())
+    text = f"📊 СТАТИСТИКА\n\n👥 Пользователей: {len(users)}\n🎫 Промокодов: {len(promos)}\n\n🏆 ТОП-10:\n{top}"
+    await callback.message.edit_text(text, reply_markup=back_menu())
     await callback.answer()
 
 @dp.callback_query(F.data == "admin_broadcast")
@@ -1140,7 +961,7 @@ async def admin_broadcast_callback(callback: aiogram_types.CallbackQuery, state:
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    await callback.message.edit_text("📢 РАССЫЛКА\n\nВведите текст для рассылки (или /cancel для отмены):", reply_markup=back_menu())
+    await callback.message.edit_text("📢 Введите текст рассылки (или /cancel):", reply_markup=back_menu())
     await state.set_state(BroadcastState.waiting_text)
     await callback.answer()
 
@@ -1149,17 +970,24 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     if message.text == "/cancel":
+        try:
+            await message.delete()
+        except:
+            pass
         await message.answer("❌ Отменено", reply_markup=admin_menu())
         await state.clear()
         return
     text = message.text
+    try:
+        await message.delete()
+    except:
+        pass
     users = get_all_user_ids()
     sent = 0
     status = await message.answer(f"📢 Рассылка... 0/{len(users)}")
     for i, uid in enumerate(users, 1):
         try:
-            lang = get_user_language(uid)
-            await bot.send_message(uid, text, parse_mode=ParseMode.HTML)
+            await bot.send_message(uid, text)
             sent += 1
         except:
             pass
@@ -1175,7 +1003,8 @@ async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, sta
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    await callback.message.edit_text("Введите код промокода (можно русские буквы, без пробелов):", reply_markup=back_menu())
+    msg = await callback.message.edit_text("Введите код промокода (без пробелов):", reply_markup=back_menu())
+    await state.update_data(admin_msgs=[msg.message_id])
     await state.set_state(CreatePromoState.waiting_code)
     await callback.answer()
 
@@ -1184,11 +1013,19 @@ async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     code = message.text.strip()
+    try:
+        await message.delete()
+    except:
+        pass
     if ' ' in code or not code:
-        await message.answer("❌ Код не должен содержать пробелов и не может быть пустым. Попробуйте ещё раз:")
+        await message.answer("❌ Код не должен содержать пробелов. Попробуйте ещё раз:")
         return
-    await state.update_data(code=code)
-    await message.answer("Выберите тип промокода:", reply_markup=promo_type_keyboard())
+    data = await state.get_data()
+    admin_msgs = data.get("admin_msgs", [])
+    await state.update_data(code=code, admin_msgs=admin_msgs)
+    msg = await message.answer("Выберите тип промокода:", reply_markup=promo_type_keyboard())
+    admin_msgs.append(msg.message_id)
+    await state.update_data(admin_msgs=admin_msgs)
     await state.set_state(CreatePromoState.waiting_type)
 
 @dp.callback_query(F.data == "promo_type_vip")
@@ -1211,76 +1048,76 @@ async def promo_type_attacks(callback: aiogram_types.CallbackQuery, state: FSMCo
     await state.set_state(CreatePromoState.waiting_bonus)
     await callback.answer()
 
-@dp.callback_query(F.data == "promo_type_energy")
-async def promo_type_energy(callback: aiogram_types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-    await state.update_data(type="energy")
-    await callback.message.edit_text("Введите количество энергии (бонус):", reply_markup=back_menu())
-    await state.set_state(CreatePromoState.waiting_bonus)
-    await callback.answer()
-
 @dp.message(CreatePromoState.waiting_bonus)
 async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     text = message.text.strip()
+    try:
+        await message.delete()
+    except:
+        pass
     if text in ['/cancel', '/admin']:
-        await message.answer("❌ Создание промокода отменено.", reply_markup=admin_menu())
+        await message.answer("❌ Отменено", reply_markup=admin_menu())
         await state.clear()
         return
     cleaned = clean_number_input(text)
     if not cleaned:
         await message.answer("❌ Введите положительное целое число (только цифры):")
         return
-    try:
-        bonus = int(cleaned)
-        if bonus <= 0:
-            raise ValueError
-        await state.update_data(bonus=bonus)
-        await message.answer("Введите количество использований (макс):", reply_markup=back_menu())
-        await state.set_state(CreatePromoState.waiting_uses)
-    except ValueError:
+    bonus = int(cleaned)
+    if bonus <= 0:
         await message.answer("❌ Введите положительное целое число (только цифры):")
+        return
+    data = await state.get_data()
+    if data.get("type") == "vip" and bonus <= 0:
+        await message.answer("❌ Для VIP количество дней должно быть > 0:")
+        return
+    await state.update_data(bonus=bonus)
+    await message.answer("Введите количество использований (макс):", reply_markup=back_menu())
+    await state.set_state(CreatePromoState.waiting_uses)
 
 @dp.message(CreatePromoState.waiting_uses)
 async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     text = message.text.strip()
+    try:
+        await message.delete()
+    except:
+        pass
     if text in ['/cancel', '/admin']:
-        await message.answer("❌ Создание промокода отменено.", reply_markup=admin_menu())
+        await message.answer("❌ Отменено", reply_markup=admin_menu())
         await state.clear()
         return
     cleaned = clean_number_input(text)
     if not cleaned:
         await message.answer("❌ Введите положительное целое число (только цифры):")
         return
-    try:
-        uses = int(cleaned)
-        if uses <= 0:
-            raise ValueError
-        data = await state.get_data()
-        code = data['code']
-        promo_type = data['type']
-        bonus = data['bonus']
-        if promo_type == 'vip':
-            create_promo(code, uses, bonus, 0, 0, 'vip', ADMIN_ID)
-            bonus_str = f"{bonus} дней VIP"
-        elif promo_type == 'attacks':
-            create_promo(code, uses, 0, bonus, 0, 'attacks', ADMIN_ID)
-            bonus_str = f"{bonus} атак"
-        elif promo_type == 'energy':
-            create_promo(code, uses, 0, 0, bonus, 'energy', ADMIN_ID)
-            bonus_str = f"{bonus} энергии"
-        else:
-            await message.answer("❌ Неизвестный тип.")
-            return
-        await message.answer(f"✅ Промокод **{code}** создан!\nТип: {promo_type.capitalize()}\nИспользований: {uses}\nБонус: {bonus_str}", reply_markup=admin_menu())
-        await state.clear()
-    except ValueError:
+    uses = int(cleaned)
+    if uses <= 0:
         await message.answer("❌ Введите положительное целое число (только цифры):")
+        return
+    data = await state.get_data()
+    code = data['code']
+    promo_type = data['type']
+    bonus = data['bonus']
+    if promo_type == 'vip':
+        if bonus <= 0:
+            await message.answer("❌ Для VIP количество дней должно быть > 0.", reply_markup=admin_menu())
+            await state.clear()
+            return
+        create_promo(code, uses, bonus, 0, 'vip', ADMIN_ID)
+        bonus_str = f"{bonus} дней VIP"
+    else:
+        if bonus <= 0:
+            await message.answer("❌ Для атак количество должно быть > 0.", reply_markup=admin_menu())
+            await state.clear()
+            return
+        create_promo(code, uses, 0, bonus, 'attacks', ADMIN_ID)
+        bonus_str = f"{bonus} атак"
+    await message.answer(f"✅ Промокод <b>{code}</b> создан!\nТип: {promo_type}\nИспользований: {uses}\nБонус: {bonus_str}", reply_markup=admin_menu())
+    await state.clear()
 
 @dp.callback_query(F.data == "admin_promo_list")
 async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
@@ -1292,15 +1129,10 @@ async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
         text = "📋 Промокодов пока нет."
     else:
         lines = []
-        for code, max_uses, used, typ, dur, atk, eng in promos:
-            if typ == 'vip':
-                bonus_str = f"{dur} дней VIP"
-            elif typ == 'attacks':
-                bonus_str = f"{atk} атак"
-            else:
-                bonus_str = f"{eng} энергии"
-            lines.append(f"• {code} — {used}/{max_uses} использовано, {bonus_str}")
-        text = "📋 СПИСОК ПРОМОКОДОВ:\n" + "\n".join(lines)
+        for code, max_uses, used, typ, dur, atk in promos:
+            bonus_str = f"{dur} дней VIP" if typ == 'vip' else f"{atk} атак"
+            lines.append(f"• {code} — {used}/{max_uses}, {bonus_str}")
+        text = "📋 ПРОМОКОДЫ:\n" + "\n".join(lines)
     await callback.message.edit_text(text, reply_markup=back_menu())
     await callback.answer()
 
@@ -1311,13 +1143,10 @@ async def admin_blacklist_callback(callback: aiogram_types.CallbackQuery):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     blacklist = get_blacklist()
-    if blacklist:
-        text = "📋 ЧЁРНЫЙ СПИСОК:\n" + "\n".join([f"• @{b}" for b in blacklist])
-    else:
-        text = "📋 Чёрный список пуст."
+    text = "📋 ЧЁРНЫЙ СПИСОК:\n" + "\n".join([f"• @{b}" for b in blacklist]) if blacklist else "📋 Чёрный список пуст."
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Добавить цель", callback_data="admin_add_blacklist")],
-        [InlineKeyboardButton(text="➖ Удалить цель", callback_data="admin_remove_blacklist")],
+        [InlineKeyboardButton(text="➕ Добавить", callback_data="admin_add_blacklist")],
+        [InlineKeyboardButton(text="➖ Удалить", callback_data="admin_remove_blacklist")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back")]
     ])
     await callback.message.edit_text(text, reply_markup=keyboard)
@@ -1337,7 +1166,7 @@ async def admin_remove_blacklist_callback(callback: aiogram_types.CallbackQuery,
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    await callback.message.edit_text("Введите username цели для удаления (без @):", reply_markup=back_menu())
+    await callback.message.edit_text("Введите username для удаления (без @):", reply_markup=back_menu())
     await state.set_state(BlacklistState.waiting_remove)
     await callback.answer()
 
@@ -1345,7 +1174,11 @@ async def admin_remove_blacklist_callback(callback: aiogram_types.CallbackQuery,
 async def add_blacklist_handler(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
-    target = message.text.strip()
+    target = message.text.strip().lstrip('@')
+    try:
+        await message.delete()
+    except:
+        pass
     if not target:
         await message.answer("❌ Неверный username", reply_markup=back_menu())
         return
@@ -1362,7 +1195,11 @@ async def add_blacklist_handler(message: aiogram_types.Message, state: FSMContex
 async def remove_blacklist_handler(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
-    target = message.text.strip()
+    target = message.text.strip().lstrip('@')
+    try:
+        await message.delete()
+    except:
+        pass
     if not target:
         await message.answer("❌ Неверный username")
         return
@@ -1379,12 +1216,9 @@ async def admin_settings_callback(callback: aiogram_types.CallbackQuery):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     ad_text = get_setting('ad_text') or "Не настроена"
-    broadcast_enabled = get_setting('broadcast_enabled') == '1'
-    status = "Включена" if broadcast_enabled else "Отключена"
-    text = f"⚙️ НАСТРОЙКИ\n\nРекламный текст:\n{ad_text}\n\nАвто-рассылка: {status}"
+    text = f"⚙️ НАСТРОЙКИ\n\nРекламный текст:\n{ad_text}"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Изменить рекламу", callback_data="admin_edit_ad")],
-        [InlineKeyboardButton(text="🔄 Переключить авто-рассылку", callback_data="admin_toggle_broadcast")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back")]
     ])
     await callback.message.edit_text(text, reply_markup=keyboard)
@@ -1404,50 +1238,24 @@ async def set_ad_text(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     if message.text == "/cancel":
+        try:
+            await message.delete()
+        except:
+            pass
         await message.answer("❌ Отменено", reply_markup=admin_menu())
         await state.clear()
         return
     set_setting('ad_text', message.text)
+    try:
+        await message.delete()
+    except:
+        pass
     await message.answer("✅ Рекламный текст обновлён!", reply_markup=admin_menu())
     await state.clear()
 
-@dp.callback_query(F.data == "admin_toggle_broadcast")
-async def admin_toggle_broadcast_callback(callback: aiogram_types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-    current = get_setting('broadcast_enabled') == '1'
-    new_status = not current
-    set_setting('broadcast_enabled', '1' if new_status else '0')
-    await callback.answer(f"Авто-рассылка {'включена' if new_status else 'отключена'}")
-    await admin_settings_callback(callback)
-
 # ============================================================
-#  ФОНОВЫЕ ЗАДАЧИ
+#  ФОНОВАЯ ПРОВЕРКА VIP
 # ============================================================
-async def weekly_broadcast():
-    while True:
-        try:
-            if get_setting('broadcast_enabled') == '1':
-                last = get_setting('last_weekly_broadcast')
-                if last:
-                    last_date = datetime.fromisoformat(last)
-                    if datetime.now() - last_date >= timedelta(days=7):
-                        ad_text = get_setting('ad_text') or "Реклама"
-                        users = get_all_user_ids()
-                        for uid in users:
-                            try:
-                                lang = get_user_language(uid)
-                                await bot.send_message(uid, f"📢 {ad_text}")
-                                await asyncio.sleep(0.1)
-                            except:
-                                pass
-                        set_setting('last_weekly_broadcast', datetime.now().isoformat())
-                        print("✅ Авто-рассылка выполнена")
-        except Exception as e:
-            print(f"Ошибка авто-рассылки: {e}")
-        await asyncio.sleep(3600)
-
 async def check_vip_expiry():
     while True:
         try:
@@ -1460,36 +1268,11 @@ async def check_vip_expiry():
                 if vip_until:
                     expiry_date = datetime.fromisoformat(vip_until)
                     if now.date() + timedelta(days=1) == expiry_date.date():
-                        lang = get_user_language(user_id)
-                        await bot.send_message(user_id, f"⚠️ Ваш VIP истекает завтра! Продлите подписку.")
+                        await bot.send_message(user_id, "⚠️ Ваш VIP истекает завтра!")
             conn.close()
         except Exception as e:
-            print(f"VIP expiry check error: {e}")
+            print(f"VIP expiry error: {e}")
         await asyncio.sleep(86400)
-
-# ============================================================
-#  ЯЗЫКИ (команда /lang)
-# ============================================================
-@dp.message(Command("lang"))
-async def lang_command(message: aiogram_types.Message):
-    user_id = message.from_user.id
-    lang = get_user_language(user_id)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
-        [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en")],
-        [InlineKeyboardButton(text="🇺🇦 Українська", callback_data="lang_uk")],
-        [InlineKeyboardButton(text="🇰🇿 Қазақша", callback_data="lang_kk")],
-        [InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="lang_uz")],
-    ])
-    await message.answer("🌐 Выберите язык / Choose language:", reply_markup=keyboard)
-
-@dp.callback_query(F.data.startswith("lang_"))
-async def lang_callback(callback: aiogram_types.CallbackQuery):
-    user_id = callback.from_user.id
-    new_lang = callback.data.split("_")[1]
-    set_user_language(user_id, new_lang)
-    await callback.message.edit_text(f"🌐 Язык изменён.", reply_markup=main_menu(user_id))
-    await callback.answer()
 
 # ============================================================
 #  ЗАПУСК
@@ -1497,11 +1280,10 @@ async def lang_callback(callback: aiogram_types.CallbackQuery):
 async def main():
     init_db()
     asyncio.create_task(check_vip_expiry())
-    asyncio.create_task(weekly_broadcast())
-    print(f"🔰 {BOT_NAME} запущен (имитация жалоб, лимит 2/день для обычных)")
+    print(f"🔰 {BOT_NAME} запущен")
     print(f"👑 Админ: {ADMIN_ID}")
     if REQUIRED_CHANNEL:
-        print(f"📢 Обязательная подписка: {REQUIRED_CHANNEL}")
+        print(f"📢 Подписка: {REQUIRED_CHANNEL}")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
