@@ -13,14 +13,17 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-BOT_NAME = "RELEON SNOSSER"
-BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # замените!
+BOT_NAME = "MAFIA SNOS"
+BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ НА НОВЫЙ!
 ADMIN_ID = 8653940355
 REQUIRED_CHANNEL = "@manyapollice"
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
 
-DAILY_LIMIT_NORMAL = 2
+# ============================================================
+#  ЛИМИТЫ (Обновлено: 50 запросов для обычных)
+# ============================================================
+DAILY_LIMIT_NORMAL = 50
 DAILY_LIMIT_VIP = float('inf')
 
 VIOLATION_TYPES = {
@@ -159,7 +162,7 @@ def is_vip(user_id):
         return False
     vip_until = row[6]
     if vip_until is None:
-        return True  # бессрочный VIP
+        return True
     try:
         if datetime.now().isoformat() > vip_until:
             update_user_field(user_id, "is_vip", 0)
@@ -307,20 +310,17 @@ def use_promo(user_id, code):
     if c.fetchone():
         conn.close()
         return None, "already"
-    # Проверка бонуса до записи
     if promo_type == "vip" and duration <= 0:
         conn.close()
         return None, "bad_type"
     if promo_type == "attacks" and atk_bonus <= 0:
         conn.close()
         return None, "bad_type"
-    # Записываем использование
     c.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (code,))
     c.execute("INSERT INTO used_promos (user_id, code, used_at) VALUES (?, ?, ?)",
               (user_id, code, datetime.now().isoformat()))
     conn.commit()
     conn.close()
-    # Применяем бонус
     if promo_type == "vip":
         if set_vip(user_id, duration):
             return duration, "vip"
@@ -427,16 +427,30 @@ async def attack_bot(target_username, count, violation_type, link):
 def main_menu(user_id):
     color = get_button_color(user_id)
     emoji = COLOR_MAP.get(color, '🔵')
+    
+    # Раскладка как на скриншоте
     buttons = [
-        [InlineKeyboardButton(text=f"{emoji} Атака", callback_data="attack")],
-        [InlineKeyboardButton(text=f"{emoji} Профиль", callback_data="profile")],
-        [InlineKeyboardButton(text=f"{emoji} Рейтинг атак", callback_data="rating_attacks")],
-        [InlineKeyboardButton(text=f"{emoji} Моя статистика", callback_data="my_stats")],
+        [InlineKeyboardButton(text="🚀 Начать", callback_data="attack")],
+        [
+            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
+            InlineKeyboardButton(text="🆘 Поддержка", url="https://t.me/snospve")
+        ],
+        [
+            InlineKeyboardButton(text="🛒 Магазин", callback_data="shop"),
+            InlineKeyboardButton(text="🏆 Рейтинг", callback_data="rating_attacks")
+        ],
+        [
+            InlineKeyboardButton(text="📊 Моя статистика", callback_data="my_stats")
+        ]
     ]
+    
+    # Оставляем изменение цвета для VIP
     if is_vip(user_id):
-        buttons.append([InlineKeyboardButton(text=f"{emoji} Цвет кнопок", callback_data="change_color")])
+        buttons[3].append(InlineKeyboardButton(text=f"{emoji} Цвет", callback_data="change_color"))
+        
     if REQUIRED_CHANNEL:
-        buttons.append([InlineKeyboardButton(text=f"{emoji} Проверить подписку", callback_data="check_sub")])
+        buttons.append([InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_sub")])
+        
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def back_menu():
@@ -470,7 +484,7 @@ def promo_type_keyboard():
     ])
 
 def count_keyboard():
-    counts = [1, 5, 10, 50, 100, 150, 200, 250, 300]
+    counts = [1, 5, 10, 20, 50, 100, 150, 200, 250, 300]
     kb = []
     row = []
     for c in counts:
@@ -503,19 +517,34 @@ async def start_command(message: aiogram_types.Message, state: FSMContext):
     except:
         pass
     add_user(user_id, message.from_user.username, message.from_user.first_name)
+    
     if not await check_subscription(user_id):
         await message.answer(
             f"🔴 Для использования {BOT_NAME} подпишитесь на канал {REQUIRED_CHANNEL}!",
             reply_markup=sub_keyboard()
         )
         return
-    await message.answer(
-        f"❄️ Добро пожаловать в {BOT_NAME}!\n\n"
-        "Выбирайте тип нарушения, указывайте количество жалоб (до 300) и ссылку.\n\n"
-        "⚠️ Обычные пользователи — 2 атаки в день.\n"
-        "💎 VIP — безлимит.",
-        reply_markup=main_menu(user_id)
+
+    text = (
+        f"Убираем нарушения и защищаем аккаунты в Telegram, TikTok и на сайтах.\n\n"
+        f"Выбери нужный раздел — всё в кнопках ниже.\n\n"
+        f"⚠️ Обычные пользователи: {DAILY_LIMIT_NORMAL} запросов в день.\n"
+        f"💎 VIP: безлимит."
     )
+    
+    # ВАЖНО: Замените ссылку ниже на вашу картинку (или используйте file_id)
+    # Чтобы получить file_id, отправьте картинку боту и посмотрите лог, либо используйте URL.
+    banner_url = "https://i.imgur.com/your_image.jpg" 
+    
+    try:
+        await message.answer_photo(
+            photo=banner_url,
+            caption=text,
+            reply_markup=main_menu(user_id)
+        )
+    except Exception:
+        # Если картинка не загрузилась, отправит просто текст
+        await message.answer(text, reply_markup=main_menu(user_id))
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub_callback(callback: aiogram_types.CallbackQuery):
@@ -527,6 +556,31 @@ async def check_sub_callback(callback: aiogram_types.CallbackQuery):
             f"❌ Вы не подписаны на {REQUIRED_CHANNEL}.\nПодпишитесь и нажмите снова.",
             reply_markup=sub_keyboard()
         )
+    await callback.answer()
+
+# ============================================================
+#  МАГАЗИН
+# ============================================================
+@dp.callback_query(F.data == "shop")
+async def shop_callback(callback: aiogram_types.CallbackQuery):
+    user_id = callback.from_user.id
+    if not await ensure_subscribed(callback.message, user_id, callback):
+        return
+    
+    text = (
+        "🛒 <b>Магазин VIP-подписок</b>\n\n"
+        "📅 <b>Неделя</b> — 70 руб.\n"
+        "📅 <b>Месяц</b> — 100 руб.\n"
+        "💎 <b>Навсегда</b> — 150 руб.\n\n"
+        "Для покупки напишите нашему менеджеру: @snospve"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Написать @snospve", url="https://t.me/snospve")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
 # ============================================================
