@@ -1,4 +1,3 @@
-import os
 import asyncio
 import random
 import sqlite3
@@ -21,9 +20,6 @@ REQUIRED_CHANNEL = "@manyapollice"
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
 
-# ============================================================
-#  ЛИМИТЫ
-# ============================================================
 DAILY_LIMIT_NORMAL = 50
 DAILY_LIMIT_VIP = float('inf')
 
@@ -1207,10 +1203,6 @@ async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
     if bonus <= 0:
         await message.answer("❌ Введите положительное целое число (только цифры):")
         return
-    data = await state.get_data()
-    if data.get("type") == "vip" and bonus <= 0:
-        await message.answer("❌ Для VIP количество дней должно быть > 0:")
-        return
     await state.update_data(bonus=bonus)
     await message.answer("Введите количество использований (макс):", reply_markup=back_menu())
     await state.set_state(CreatePromoState.waiting_uses)
@@ -1237,17 +1229,9 @@ async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
     promo_type = data['type']
     bonus = data['bonus']
     if promo_type == 'vip':
-        if bonus <= 0:
-            await message.answer("❌ Для VIP количество дней должно быть > 0.", reply_markup=admin_menu())
-            await state.clear()
-            return
         create_promo(code, uses, bonus, 0, 'vip', ADMIN_ID)
         bonus_str = f"{bonus} дней VIP"
     else:
-        if bonus <= 0:
-            await message.answer("❌ Для атак количество должно быть > 0.", reply_markup=admin_menu())
-            await state.clear()
-            return
         create_promo(code, uses, 0, bonus, 'attacks', ADMIN_ID)
         bonus_str = f"{bonus} атак"
     await message.answer(f"✅ Промокод <b>{code}</b> создан!\nТип: {promo_type}\nИспользований: {uses}\nБонус: {bonus_str}", reply_markup=admin_menu())
