@@ -729,25 +729,76 @@ async def finish_attack(message_or_callback, state: FSMContext, user_id, callbac
     count = data.get("count", 1)
     step_msgs = data.get("step_messages", [])
 
+    # Имитация процесса с показом прогресса
+    progress_text = "⏳ <b>Отправка жалоб...</b>\n\n"
+    if callback:
+        msg = await callback.message.edit_text(progress_text + "░" * 10 + " 0%")
+        chat_id = callback.message.chat.id
+    else:
+        msg = await message_or_callback.answer(progress_text + "░" * 10 + " 0%")
+        chat_id = message_or_callback.chat.id
+
+    # Анимация прогресс-бара
+    for i in range(1, 11):
+        await asyncio.sleep(random.uniform(0.1, 0.3))
+        bar = "█" * i + "░" * (10 - i)
+        percent = i * 10
+        try:
+            await msg.edit_text(progress_text + f"{bar} {percent}%")
+        except:
+            pass
+
+    # Сама имитация атаки
     successful, total = await attack_bot(target, count, violation, link)
     increment_attacks(user_id, count)
     add_target_stat(user_id, target, count)
 
+    # Подсчет процента успеха
+    success_rate = int((successful / total) * 100) if total > 0 else 0
+    
+    # Статусы в зависимости от успеха
+    if success_rate >= 90:
+        status_emoji = "🔥"
+        status_text = "Максимальная эффективность!"
+    elif success_rate >= 70:
+        status_emoji = "✅"
+        status_text = "Хороший результат."
+    elif success_rate >= 50:
+        status_emoji = "⚠️"
+        status_text = "Средний результат."
+    else:
+        status_emoji = "❌"
+        status_text = "Низкий результат, попробуйте еще раз."
+
     violation_label = VIOLATION_TYPES.get(violation, {}).get("label", "Неизвестно")
+
+    # Итоговый красивый текст
     result = (
-        f"✅ Атака завершена!\n\n"
-        f"🎯 Цель: @{target}\n"
-        f"📋 Нарушение: {violation_label}\n"
-        f"🔗 Ссылка: {link}\n"
-        f"📊 Отправлено жалоб: {successful}/{total}"
+        f"{status_emoji} <b>Жалобы успешно отправлены!</b>\n\n"
+        f"🎯 <b>Цель:</b> @{target}\n"
+        f"📋 <b>Нарушение:</b> {violation_label}\n"
+        f"🔗 <b>Ссылка:</b> {link}\n\n"
+        f"📊 <b>Статистика отправки:</b>\n"
+        f"├ Всего попыток: <b>{total}</b>\n"
+        f"├ Успешно доставлено: <b>{successful}</b>\n"
+        f"└ Эффективность: <b>{success_rate}%</b>\n\n"
+        f"💬 <i>{status_text}</i>"
     )
 
+    # Меняем сообщение с прогресс-баром на итоговый результат
+    try:
+        await msg.edit_text(result, reply_markup=main_menu(user_id))
+    except:
+        if callback:
+            await callback.message.edit_text(result, reply_markup=main_menu(user_id))
+        else:
+            await message_or_callback.answer(result, reply_markup=main_menu(user_id))
+
     if callback:
-        await callback.message.edit_text(result, reply_markup=main_menu(user_id))
         await callback.answer()
-    else:
-        await message_or_callback.answer(result, reply_markup=main_menu(user_id))
-    await cleanup_state_messages(message_or_callback.chat.id if hasattr(message_or_callback, 'chat') else callback.message.chat.id, step_msgs)
+
+    # Очищаем промежуточные сообщения
+    await cleanup_state_messages(chat_id, step_msgs)
     await state.clear()
 
 # ============================================================
