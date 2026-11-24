@@ -15,9 +15,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramBadRequest
 
-BOT_NAME = "SNOS"
-BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ!
-ADMIN_ID = 8653940355 6380627741
+BOT_NAME = "MAFIA SNOS"
+BOT_TOKEN = "ВАШ_ТОКЕН_ЗДЕСЬ"  # ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ!
+# ТУТ ДОБАВЛЕН ВТОРОЙ АДМИН (список)
+ADMIN_IDS = [8653940355, 6380627741] 
 REQUIRED_CHANNEL = "@manyapollice"
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
@@ -32,7 +33,6 @@ VIOLATION_TYPES = {
     "other": {"label": "Другое"}
 }
 
-# Цвета оставлены только в виде текста для минимализма
 COLOR_MAP = {'blue': 'Синий', 'green': 'Зеленый', 'red': 'Красный', 'yellow': 'Желтый', 'purple': 'Фиолетовый'}
 COLOR_NAMES = COLOR_MAP
 
@@ -240,7 +240,6 @@ def get_all_user_ids():
 def get_all_users():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Исключаем тех, у кого включен Ghost Mode
     c.execute("SELECT user_id, username, attacks FROM users WHERE ghost_mode = 0 ORDER BY attacks DESC")
     users = c.fetchall()
     conn.close()
@@ -284,7 +283,6 @@ def is_in_blacklist(username):
     conn.close()
     return row is not None
 
-# Промокоды
 def create_promo(code, max_uses, duration_days, attacks_bonus, promo_type, admin_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -421,22 +419,19 @@ async def ddos_bot(target, count):
     return successful, count
 
 # ============================================================
-#  КЛАВИАТУРЫ (БЕЗ СМАЙЛИКОВ)
+#  КЛАВИАТУРЫ (ПО 2 В РЯД)
 # ============================================================
 def main_menu(user_id):
+    # Формируем сетку 2х2 (по две кнопки в строке)
     buttons = [
-        [InlineKeyboardButton(text="Атака", callback_data="attack")],
-        [InlineKeyboardButton(text="DDoS", callback_data="ddos")],
-        [InlineKeyboardButton(text="OSINT", callback_data="osint_menu")],
-        [InlineKeyboardButton(text="Профиль", callback_data="profile")],
-        [InlineKeyboardButton(text="Магазин", callback_data="shop")],
-        [InlineKeyboardButton(text="Рейтинг", callback_data="rating_attacks")],
-        [InlineKeyboardButton(text="Поддержка", url="https://t.me/snospve")],
-        [InlineKeyboardButton(text="Моя статистика", callback_data="my_stats")]
+        [InlineKeyboardButton(text="Атака", callback_data="attack"), InlineKeyboardButton(text="DDoS", callback_data="ddos")],
+        [InlineKeyboardButton(text="OSINT", callback_data="osint_menu"), InlineKeyboardButton(text="Профиль", callback_data="profile")],
+        [InlineKeyboardButton(text="Магазин", callback_data="shop"), InlineKeyboardButton(text="Рейтинг", callback_data="rating_attacks")],
+        [InlineKeyboardButton(text="Статистика", callback_data="my_stats"), InlineKeyboardButton(text="Поддержка", url="https://t.me/snospve")]
     ]
     
     if is_vip(user_id):
-        buttons.append([InlineKeyboardButton(text="Настройки", callback_data="vip_settings")])
+        buttons.append([InlineKeyboardButton(text="Настройки VIP", callback_data="vip_settings")])
         
     if REQUIRED_CHANNEL:
         buttons.append([InlineKeyboardButton(text="Проверить подписку", callback_data="check_sub")])
@@ -450,26 +445,27 @@ def back_menu():
 
 def osint_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Информация о номере", callback_data="osint_phone")],
-        [InlineKeyboardButton(text="Пинг сайта", callback_data="osint_ping")],
+        [InlineKeyboardButton(text="Информация о номере", callback_data="osint_phone"), InlineKeyboardButton(text="Пинг сайта", callback_data="osint_ping")],
         [InlineKeyboardButton(text="Назад", callback_data="back")]
     ])
 
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="Рассылка", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="Создать промокод", callback_data="admin_create_promo")],
-        [InlineKeyboardButton(text="Промокоды", callback_data="admin_promo_list")],
-        [InlineKeyboardButton(text="Черный список", callback_data="admin_blacklist")],
-        [InlineKeyboardButton(text="Настройки", callback_data="admin_settings")],
+        [InlineKeyboardButton(text="Статистика", callback_data="admin_stats"), InlineKeyboardButton(text="Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="Создать промокод", callback_data="admin_create_promo"), InlineKeyboardButton(text="Промокоды", callback_data="admin_promo_list")],
+        [InlineKeyboardButton(text="Черный список", callback_data="admin_blacklist"), InlineKeyboardButton(text="Настройки", callback_data="admin_settings")],
         [InlineKeyboardButton(text="Назад", callback_data="back")]
     ])
 
 def color_choose_keyboard():
     kb = []
+    row = []
     for key, name in COLOR_MAP.items():
-        kb.append([InlineKeyboardButton(text=name, callback_data=f"color_{key}")])
+        row.append(InlineKeyboardButton(text=name, callback_data=f"color_{key}"))
+        if len(row) == 2:
+            kb.append(row)
+            row = []
+    if row: kb.append(row)
     kb.append([InlineKeyboardButton(text="Назад", callback_data="back")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -484,8 +480,7 @@ def vip_settings_keyboard(user_id):
 
 def promo_type_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="VIP", callback_data="promo_type_vip")],
-        [InlineKeyboardButton(text="Атаки", callback_data="promo_type_attacks")],
+        [InlineKeyboardButton(text="VIP", callback_data="promo_type_vip"), InlineKeyboardButton(text="Атаки", callback_data="promo_type_attacks")],
         [InlineKeyboardButton(text="Отмена", callback_data="back")]
     ])
 
@@ -495,7 +490,7 @@ def count_keyboard():
     row = []
     for c in counts:
         row.append(InlineKeyboardButton(text=str(c), callback_data=f"count_{c}"))
-        if len(row) == 3:
+        if len(row) == 3: # По 3 кнопки в ряд для чисел
             kb.append(row)
             row = []
     if row: kb.append(row)
@@ -582,7 +577,6 @@ async def osint_phone_process(message: aiogram_types.Message, state: FSMContext)
         
     msg = await message.answer("<i>Анализ базы операторов...</i>")
     
-    # Упрощенная имитация базы операторов по префиксам (РФ)
     operator = "Неизвестный оператор"
     region = "Россия"
     
@@ -807,9 +801,10 @@ async def attack_count_manual(message: aiogram_types.Message, state: FSMContext)
 
 async def show_violation_menu(message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=v['label'], callback_data=f"violation_{k}")]
-        for k, v in VIOLATION_TYPES.items()
-    ] + [[InlineKeyboardButton(text="Назад", callback_data="back")]])
+        [InlineKeyboardButton(text="Доксинг", callback_data="violation_doxxing"), InlineKeyboardButton(text="Авторские права", callback_data="violation_copyright")],
+        [InlineKeyboardButton(text="Спам", callback_data="violation_spam"), InlineKeyboardButton(text="Другое", callback_data="violation_other")],
+        [InlineKeyboardButton(text="Назад", callback_data="back")]
+    ])
     await message.answer("<b>Выберите тип нарушения:</b>", reply_markup=kb)
     await state.set_state(AttackState.waiting_violation)
 
@@ -979,7 +974,7 @@ async def finish_ddos(message_or_callback, state: FSMContext, user_id, callback=
     await state.clear()
 
 # ============================================================
-#  ОСТАЛЬНЫЕ ОБРАБОТЧИКИ (Ввод промокода, рейтинг и т.д.)
+#  ПРОМОКОДЫ И СТАТИСТИКА (ПОЛЬЗОВАТЕЛЬ)
 # ============================================================
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
@@ -1100,18 +1095,18 @@ async def back_callback(callback: aiogram_types.CallbackQuery, state: FSMContext
     await callback.answer()
 
 # ============================================================
-#  АДМИН-ПАНЕЛЬ (Упрощенная для минимализма)
+#  АДМИН-ПАНЕЛЬ (Обновлено под список ADMIN_IDS)
 # ============================================================
 @dp.message(Command("admin"))
 async def admin_command(message: aiogram_types.Message):
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         await message.answer("Нет доступа.")
         return
     await message.answer("<b>Админ-панель</b>", reply_markup=admin_menu())
 
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats_callback(callback: aiogram_types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("Нет доступа.", show_alert=True)
         return
     users = get_all_users()
@@ -1127,7 +1122,7 @@ async def admin_stats_callback(callback: aiogram_types.CallbackQuery):
 
 @dp.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != ADMIN_ID:
+    if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("Нет доступа.", show_alert=True)
         return
     await callback.message.edit_text("<b>Введите текст рассылки (или /cancel):</b>", reply_markup=back_menu())
@@ -1136,7 +1131,7 @@ async def admin_broadcast_callback(callback: aiogram_types.CallbackQuery, state:
 
 @dp.message(BroadcastState.waiting_text)
 async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id not in ADMIN_IDS: return
     if message.text == "/cancel":
         await message.answer("Отменено.", reply_markup=admin_menu())
         await state.clear()
@@ -1155,11 +1150,217 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     await status.edit_text(f"Готово. Отправлено {sent}/{len(users)}", reply_markup=admin_menu())
     await state.clear()
 
-# Остальные админ-хендлеры (промокоды, ЧС) остаются функциональными, но без эмодзи.
-# (Для экономии места они убраны в этом блоке, но подразумевается, что вы используете их из предыдущей версии, заменив текст на аналогичный).
-# Ниже приведен базовый обработчик для выхода из админки.
+@dp.callback_query(F.data == "admin_create_promo")
+async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.message.edit_text("<b>Введите код промокода (без пробелов):</b>", reply_markup=back_menu())
+    await state.set_state(CreatePromoState.waiting_code)
+    await callback.answer()
 
-if __name__ == '__main__':
+@dp.message(CreatePromoState.waiting_code)
+async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    code = message.text.strip()
+    if ' ' in code or not code:
+        await message.answer("Код не должен содержать пробелов. Попробуйте ещё раз:")
+        return
+    await state.update_data(code=code)
+    await message.answer("<b>Выберите тип промокода:</b>", reply_markup=promo_type_keyboard())
+    await state.set_state(CreatePromoState.waiting_type)
+
+@dp.callback_query(F.data == "promo_type_vip")
+async def promo_type_vip(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await state.update_data(type="vip")
+    await callback.message.edit_text("<b>Введите количество дней VIP:</b>", reply_markup=back_menu())
+    await state.set_state(CreatePromoState.waiting_bonus)
+    await callback.answer()
+
+@dp.callback_query(F.data == "promo_type_attacks")
+async def promo_type_attacks(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await state.update_data(type="attacks")
+    await callback.message.edit_text("<b>Введите количество атак (бонус):</b>", reply_markup=back_menu())
+    await state.set_state(CreatePromoState.waiting_bonus)
+    await callback.answer()
+
+@dp.message(CreatePromoState.waiting_bonus)
+async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    text = message.text.strip()
+    if text in ['/cancel', '/admin']:
+        await message.answer("Отменено.", reply_markup=admin_menu())
+        await state.clear()
+        return
+    cleaned = clean_number_input(text)
+    if not cleaned:
+        await message.answer("Введите положительное целое число:")
+        return
+    bonus = int(cleaned)
+    if bonus <= 0:
+        await message.answer("Введите положительное целое число:")
+        return
+    await state.update_data(bonus=bonus)
+    await message.answer("<b>Введите количество использований (макс):</b>", reply_markup=back_menu())
+    await state.set_state(CreatePromoState.waiting_uses)
+
+@dp.message(CreatePromoState.waiting_uses)
+async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    text = message.text.strip()
+    if text in ['/cancel', '/admin']:
+        await message.answer("Отменено.", reply_markup=admin_menu())
+        await state.clear()
+        return
+    cleaned = clean_number_input(text)
+    if not cleaned:
+        await message.answer("Введите положительное целое число:")
+        return
+    uses = int(cleaned)
+    if uses <= 0:
+        await message.answer("Введите положительное целое число:")
+        return
+    data = await state.get_data()
+    code = data['code']
+    promo_type = data['type']
+    bonus = data['bonus']
+    if promo_type == 'vip':
+        create_promo(code, uses, bonus, 0, 'vip', message.from_user.id)
+        bonus_str = f"{bonus} дней VIP"
+    else:
+        create_promo(code, uses, 0, bonus, 'attacks', message.from_user.id)
+        bonus_str = f"{bonus} атак"
+    await message.answer(f"<b>Промокод {code} создан.</b>\n\n<blockquote>Тип: {promo_type}\nИспользований: {uses}\nБонус: {bonus_str}</blockquote>", reply_markup=admin_menu())
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_promo_list")
+async def admin_promo_list_callback(callback: aiogram_types.CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    promos = get_promo_stats()
+    if not promos:
+        text = "Промокодов пока нет."
+    else:
+        lines = []
+        for code, max_uses, used, typ, dur, atk in promos:
+            bonus_str = f"{dur} дней VIP" if typ == 'vip' else f"{atk} атак"
+            lines.append(f"{code} — {used}/{max_uses}, {bonus_str}")
+        text = "<b>Промокоды</b>\n\n<blockquote>" + "\n".join(lines) + "</blockquote>"
+    await callback.message.edit_text(text, reply_markup=back_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "admin_blacklist")
+async def admin_blacklist_callback(callback: aiogram_types.CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    blacklist = get_blacklist()
+    text = "<b>Черный список</b>\n\n<blockquote>" + ("\n".join([f"@{b}" for b in blacklist]) if blacklist else "Пуст") + "</blockquote>"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Добавить", callback_data="admin_add_blacklist"), InlineKeyboardButton(text="Удалить", callback_data="admin_remove_blacklist")],
+        [InlineKeyboardButton(text="Назад", callback_data="back")]
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+@dp.callback_query(F.data == "admin_add_blacklist")
+async def admin_add_blacklist_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.message.edit_text("<b>Введите username цели (без @):</b>", reply_markup=back_menu())
+    await state.set_state(BlacklistState.waiting_add)
+    await callback.answer()
+
+@dp.callback_query(F.data == "admin_remove_blacklist")
+async def admin_remove_blacklist_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.message.edit_text("<b>Введите username для удаления (без @):</b>", reply_markup=back_menu())
+    await state.set_state(BlacklistState.waiting_remove)
+    await callback.answer()
+
+@dp.message(BlacklistState.waiting_add)
+async def add_blacklist_handler(message: aiogram_types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    target = message.text.strip().lstrip('@')
+    if not target:
+        await message.answer("Неверный username.", reply_markup=back_menu())
+        return
+    if is_in_blacklist(target):
+        await message.answer("Цель уже в черном списке.")
+    else:
+        if add_to_blacklist(target, message.from_user.id):
+            await message.answer(f"<b>@{target} добавлен в черный список.</b>", reply_markup=admin_menu())
+        else:
+            await message.answer("Ошибка добавления.")
+    await state.clear()
+
+@dp.message(BlacklistState.waiting_remove)
+async def remove_blacklist_handler(message: aiogram_types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    target = message.text.strip().lstrip('@')
+    if not target:
+        await message.answer("Неверный username.")
+        return
+    if remove_from_blacklist(target):
+        await message.answer(f"<b>@{target} удален из черного списка.</b>", reply_markup=admin_menu())
+    else:
+        await message.answer("Цель не найдена.")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_settings")
+async def admin_settings_callback(callback: aiogram_types.CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    ad_text = get_setting('ad_text') or "Не настроена"
+    text = f"<b>Настройки</b>\n\n<blockquote>Реклама:\n{ad_text}</blockquote>"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Изменить рекламу", callback_data="admin_edit_ad")],
+        [InlineKeyboardButton(text="Назад", callback_data="back")]
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+@dp.callback_query(F.data == "admin_edit_ad")
+async def admin_edit_ad_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.message.edit_text("<b>Введите новый текст рекламы:</b>", reply_markup=back_menu())
+    await state.set_state(AdState.waiting_text)
+    await callback.answer()
+
+@dp.message(AdState.waiting_text)
+async def set_ad_text(message: aiogram_types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    if message.text == "/cancel":
+        await message.answer("Отменено.", reply_markup=admin_menu())
+        await state.clear()
+        return
+    set_setting('ad_text', message.text)
+    await message.answer("<b>Рекламный текст обновлен.</b>", reply_markup=admin_menu())
+    await state.clear()
+
+# ============================================================
+#  ЗАПУСК
+# ============================================================
+async def main():
     init_db()
     print(f"{BOT_NAME} запущен.")
-    asyncio.run(dp.start_polling(bot))
+    print(f"Админы: {ADMIN_IDS}")
+    if REQUIRED_CHANNEL:
+        print(f"Подписка: {REQUIRED_CHANNEL}")
+    await dp.start_polling(bot)
+
+if __name__ == '__main__':
+    asyncio.run(main())
