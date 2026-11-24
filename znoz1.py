@@ -22,7 +22,7 @@ PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
 
 # ============================================================
-#  ЛИМИТЫ (50 запросов для обычных)
+#  ЛИМИТЫ
 # ============================================================
 DAILY_LIMIT_NORMAL = 50
 DAILY_LIMIT_VIP = float('inf')
@@ -385,6 +385,10 @@ class AttackState(StatesGroup):
     waiting_violation = State()
     waiting_link = State()
 
+class DdosState(StatesGroup):
+    waiting_target = State()
+    waiting_count = State()
+
 class BroadcastState(StatesGroup):
     waiting_text = State()
 
@@ -405,21 +409,16 @@ class AdState(StatesGroup):
     waiting_text = State()
 
 # ============================================================
-#  ОЧИСТКА СООБЩЕНИЙ
-# ============================================================
-async def cleanup_state_messages(chat_id, message_ids):
-    for mid in message_ids:
-        try:
-            await bot.delete_message(chat_id, mid)
-        except:
-            pass
-
-# ============================================================
-#  ИМИТАЦИЯ АТАКИ
+#  ИМИТАЦИЯ АТАКИ И DDOS
 # ============================================================
 async def attack_bot(target_username, count, violation_type, link):
     await asyncio.sleep(random.uniform(2, 4))
     successful = int(count * random.uniform(0.7, 0.95))
+    return successful, count
+
+async def ddos_bot(target, count):
+    await asyncio.sleep(random.uniform(2, 4))
+    successful = int(count * random.uniform(0.8, 0.99))
     return successful, count
 
 # ============================================================
@@ -430,7 +429,8 @@ def main_menu(user_id):
     emoji = COLOR_MAP.get(color, '🔵')
     
     buttons = [
-        [InlineKeyboardButton(text="🚀 Начать", callback_data="attack")],
+        [InlineKeyboardButton(text="🚀 Начать (СНОС)", callback_data="attack")],
+        [InlineKeyboardButton(text="💣 DDoS-атака", callback_data="ddos")],
         [
             InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
             InlineKeyboardButton(text="🆘 Поддержка", url="https://t.me/snospve")
@@ -445,7 +445,7 @@ def main_menu(user_id):
     ]
     
     if is_vip(user_id):
-        buttons[3].append(InlineKeyboardButton(text=f"{emoji} Цвет", callback_data="change_color"))
+        buttons[4].append(InlineKeyboardButton(text=f"{emoji} Цвет", callback_data="change_color"))
         
     if REQUIRED_CHANNEL:
         buttons.append([InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_sub")])
@@ -505,7 +505,7 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 # ============================================================
-#  ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК КНОПОК
+#  ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
 # ============================================================
 @dp.errors()
 async def errors_handler(event: aiogram_types.ErrorEvent):
@@ -522,10 +522,6 @@ async def errors_handler(event: aiogram_types.ErrorEvent):
 async def start_command(message: aiogram_types.Message, state: FSMContext):
     user_id = message.from_user.id
     await state.clear()
-    try:
-        await message.delete()
-    except:
-        pass
     add_user(user_id, message.from_user.username, message.from_user.first_name)
     
     if not await check_subscription(user_id):
@@ -542,15 +538,6 @@ async def start_command(message: aiogram_types.Message, state: FSMContext):
     )
     
     await message.answer(text, reply_markup=main_menu(user_id))
-
-# Обработчик для старых кнопок "Начать" из истории
-@dp.message(F.text == "🚀 Начать")
-async def old_start_button(message: aiogram_types.Message):
-    try:
-        await message.delete()
-    except:
-        pass
-    await message.answer("🎯 Введите username цели (без @):", reply_markup=back_menu())
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub_callback(callback: aiogram_types.CallbackQuery):
@@ -590,7 +577,130 @@ async def shop_callback(callback: aiogram_types.CallbackQuery):
     await callback.answer()
 
 # ============================================================
-#  АТАКА
+#  DDOS АТАКА
+# ============================================================
+@dp.callback_query(F.data == "ddos")
+async def ddos_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if not await ensure_subscribed(callback.message, user_id, callback):
+        return
+    limit = get_daily_limit(user_id)
+    daily = get_daily_attacks(user_id)
+    if daily >= limit:
+        await callback.answer(f"❌ Дневной лимит ({limit}) исчерпан. Купите VIP для безлимита.", show_alert=True)
+        return
+    
+    await callback.message.answer("💣 <b>DDoS-атака</b>\n\nВведите ссылку или IP цели:", reply_markup=back_menu())
+    await state.set_state(DdosState.waiting_target)
+    await callback.answer()
+
+@dp.message(DdosState.waiting_target)
+async def ddos_target(message: aiogram_types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if not await ensure_subscribed(message, user_id):
+        await state.clear()
+        return
+    target = message.text.strip()
+    if not target:
+        await message.answer("❌ Неверный формат цели.", reply_markup=main_menu(user_id))
+        await state.clear()
+        return
+    
+    await state.update_data(ddos_target=target)
+    await message.answer("Сколько запросов отправить? (1–300):", reply_markup=count_keyboard())
+    await state.set_state(DdosState.waiting_count)
+
+@dp.callback_query(F.data.startswith("count_"), DdosState.waiting_count)
+async def ddos_count_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    data = callback.data
+    if data == "count_manual":
+        await callback.message.answer("Введите число от 1 до 300:", reply_markup=back_menu())
+        return
+    try:
+        count = int(data.split("_")[1])
+    except:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    if count < 1 or count > 300:
+        await callback.answer("Число должно быть от 1 до 300", show_alert=True)
+        return
+    await state.update_data(count=count)
+    await finish_ddos(callback.message, state, callback.from_user.id, callback)
+    await callback.answer()
+
+@dp.message(DdosState.waiting_count)
+async def ddos_count_manual(message: aiogram_types.Message, state: FSMContext):
+    cleaned = clean_number_input(message.text)
+    if not cleaned:
+        await message.answer("❌ Введите число от 1 до 300:")
+        return
+    count = int(cleaned)
+    if count < 1 or count > 300:
+        await message.answer("❌ Число должно быть от 1 до 300:")
+        return
+    await state.update_data(count=count)
+    await finish_ddos(message, state, message.from_user.id)
+
+async def finish_ddos(message_or_callback, state: FSMContext, user_id, callback=None):
+    data = await state.get_data()
+    target = data.get("ddos_target")
+    count = data.get("count", 1)
+
+    progress_text = "💣 <b>DDoS-атака...</b>\n\n"
+    if callback:
+        msg = await callback.message.answer(progress_text + "░" * 10 + " 0%")
+    else:
+        msg = await message_or_callback.answer(progress_text + "░" * 10 + " 0%")
+
+    for i in range(1, 11):
+        await asyncio.sleep(random.uniform(0.1, 0.3))
+        bar = "█" * i + "░" * (10 - i)
+        percent = i * 10
+        try:
+            await msg.edit_text(progress_text + f"{bar} {percent}%")
+        except:
+            pass
+
+    successful, total = await ddos_bot(target, count)
+    increment_attacks(user_id, count)
+    add_target_stat(user_id, target, count)
+
+    success_rate = int((successful / total) * 100) if total > 0 else 0
+    
+    if success_rate >= 90:
+        status_emoji = "🔥"
+        status_text = "Сервер не выдержал!"
+    elif success_rate >= 70:
+        status_emoji = "✅"
+        status_text = "Хороший удар."
+    elif success_rate >= 50:
+        status_emoji = "⚠️"
+        status_text = "Средний результат."
+    else:
+        status_emoji = "❌"
+        status_text = "Сервер выдержал атаку."
+
+    result = (
+        f"{status_emoji} <b>DDoS-атака завершена!</b>\n\n"
+        f"🎯 <b>Цель:</b> {target}\n\n"
+        f"📊 <b>Статистика:</b>\n"
+        f"├ Всего запросов: <b>{total}</b>\n"
+        f"├ Успешно доставлено: <b>{successful}</b>\n"
+        f"└ Эффективность: <b>{success_rate}%</b>\n\n"
+        f"💬 <i>{status_text}</i>"
+    )
+
+    try:
+        await msg.edit_text(result, reply_markup=main_menu(user_id))
+    except:
+        await message_or_callback.answer(result, reply_markup=main_menu(user_id))
+
+    if callback:
+        await callback.answer()
+    await state.clear()
+
+# ============================================================
+#  СНОС (АТАКА)
 # ============================================================
 @dp.callback_query(F.data == "attack")
 async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
@@ -602,9 +712,8 @@ async def attack_callback(callback: aiogram_types.CallbackQuery, state: FSMConte
     if daily >= limit:
         await callback.answer(f"❌ Дневной лимит ({limit}) исчерпан. Купите VIP для безлимита.", show_alert=True)
         return
-    await state.update_data(step_messages=[])
-    msg = await callback.message.edit_text("🎯 Введите username цели (без @):", reply_markup=back_menu())
-    await state.update_data(step_messages=[msg.message_id])
+    
+    await callback.message.answer("🎯 Введите username цели (без @):", reply_markup=back_menu())
     await state.set_state(AttackState.waiting_username)
     await callback.answer()
 
@@ -615,10 +724,6 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
         await state.clear()
         return
     target = message.text.strip().lstrip('@')
-    try:
-        await message.delete()
-    except:
-        pass
     if not target:
         await message.answer("❌ Неверный username", reply_markup=main_menu(user_id))
         await state.clear()
@@ -631,18 +736,16 @@ async def attack_username(message: aiogram_types.Message, state: FSMContext):
         await message.answer(f"⛔ {PROTECTED_BOT} под защитой.", reply_markup=main_menu(user_id))
         await state.clear()
         return
-    data = await state.get_data()
-    step_msgs = data.get("step_messages", [])
-    msg = await message.answer("Сколько жалоб отправить? (1–300):", reply_markup=count_keyboard())
-    step_msgs.append(msg.message_id)
-    await state.update_data(target=target, step_messages=step_msgs)
+    
+    await state.update_data(target=target)
+    await message.answer("Сколько жалоб отправить? (1–300):", reply_markup=count_keyboard())
     await state.set_state(AttackState.waiting_count)
 
 @dp.callback_query(F.data.startswith("count_"), AttackState.waiting_count)
 async def attack_count_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     data = callback.data
     if data == "count_manual":
-        await callback.message.edit_text("Введите число от 1 до 300:", reply_markup=back_menu())
+        await callback.message.answer("Введите число от 1 до 300:", reply_markup=back_menu())
         return
     try:
         count = int(data.split("_")[1])
@@ -659,10 +762,6 @@ async def attack_count_callback(callback: aiogram_types.CallbackQuery, state: FS
 @dp.message(AttackState.waiting_count)
 async def attack_count_manual(message: aiogram_types.Message, state: FSMContext):
     cleaned = clean_number_input(message.text)
-    try:
-        await message.delete()
-    except:
-        pass
     if not cleaned:
         await message.answer("❌ Введите число от 1 до 300:")
         return
@@ -674,36 +773,28 @@ async def attack_count_manual(message: aiogram_types.Message, state: FSMContext)
     await show_violation_menu(message, state)
 
 async def show_violation_menu(message, state: FSMContext):
-    data = await state.get_data()
-    step_msgs = data.get("step_messages", [])
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"{v['emoji']} {v['label']}", callback_data=f"violation_{k}")]
         for k, v in VIOLATION_TYPES.items()
     ] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="back")]])
-    msg = await message.answer("Выберите тип нарушения:", reply_markup=kb)
-    step_msgs.append(msg.message_id)
-    await state.update_data(step_messages=step_msgs)
+    await message.answer("Выберите тип нарушения:", reply_markup=kb)
     await state.set_state(AttackState.waiting_violation)
 
 @dp.callback_query(F.data.startswith("violation_"), AttackState.waiting_violation)
 async def attack_violation(callback: aiogram_types.CallbackQuery, state: FSMContext):
     violation_type = callback.data.split("_")[1]
     await state.update_data(violation=violation_type)
-    data = await state.get_data()
-    step_msgs = data.get("step_messages", [])
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📎 Вставить ссылку", callback_data="link_enter")],
         [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="link_skip")]
     ])
-    msg = await callback.message.edit_text("Введите ссылку на нарушение (или пропустите):", reply_markup=kb)
-    step_msgs.append(msg.message_id)
-    await state.update_data(step_messages=step_msgs)
+    await callback.message.answer("Введите ссылку на нарушение (или пропустите):", reply_markup=kb)
     await state.set_state(AttackState.waiting_link)
     await callback.answer()
 
 @dp.callback_query(F.data == "link_enter", AttackState.waiting_link)
 async def attack_link_enter(callback: aiogram_types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Введите ссылку:", reply_markup=back_menu())
+    await callback.message.answer("Введите ссылку:", reply_markup=back_menu())
     await callback.answer()
 
 @dp.callback_query(F.data == "link_skip", AttackState.waiting_link)
@@ -714,10 +805,6 @@ async def attack_link_skip(callback: aiogram_types.CallbackQuery, state: FSMCont
 @dp.message(AttackState.waiting_link)
 async def attack_link_input(message: aiogram_types.Message, state: FSMContext):
     link = message.text.strip()
-    try:
-        await message.delete()
-    except:
-        pass
     await state.update_data(link=link or "без ссылки")
     await finish_attack(message, state, message.from_user.id)
 
@@ -727,18 +814,13 @@ async def finish_attack(message_or_callback, state: FSMContext, user_id, callbac
     violation = data.get("violation")
     link = data.get("link", "без ссылки")
     count = data.get("count", 1)
-    step_msgs = data.get("step_messages", [])
 
-    # Имитация процесса с показом прогресса
     progress_text = "⏳ <b>Отправка жалоб...</b>\n\n"
     if callback:
-        msg = await callback.message.edit_text(progress_text + "░" * 10 + " 0%")
-        chat_id = callback.message.chat.id
+        msg = await callback.message.answer(progress_text + "░" * 10 + " 0%")
     else:
         msg = await message_or_callback.answer(progress_text + "░" * 10 + " 0%")
-        chat_id = message_or_callback.chat.id
 
-    # Анимация прогресс-бара
     for i in range(1, 11):
         await asyncio.sleep(random.uniform(0.1, 0.3))
         bar = "█" * i + "░" * (10 - i)
@@ -748,15 +830,12 @@ async def finish_attack(message_or_callback, state: FSMContext, user_id, callbac
         except:
             pass
 
-    # Сама имитация атаки
     successful, total = await attack_bot(target, count, violation, link)
     increment_attacks(user_id, count)
     add_target_stat(user_id, target, count)
 
-    # Подсчет процента успеха
     success_rate = int((successful / total) * 100) if total > 0 else 0
     
-    # Статусы в зависимости от успеха
     if success_rate >= 90:
         status_emoji = "🔥"
         status_text = "Максимальная эффективность!"
@@ -772,7 +851,6 @@ async def finish_attack(message_or_callback, state: FSMContext, user_id, callbac
 
     violation_label = VIOLATION_TYPES.get(violation, {}).get("label", "Неизвестно")
 
-    # Итоговый красивый текст
     result = (
         f"{status_emoji} <b>Жалобы успешно отправлены!</b>\n\n"
         f"🎯 <b>Цель:</b> @{target}\n"
@@ -785,20 +863,13 @@ async def finish_attack(message_or_callback, state: FSMContext, user_id, callbac
         f"💬 <i>{status_text}</i>"
     )
 
-    # Меняем сообщение с прогресс-баром на итоговый результат
     try:
         await msg.edit_text(result, reply_markup=main_menu(user_id))
     except:
-        if callback:
-            await callback.message.edit_text(result, reply_markup=main_menu(user_id))
-        else:
-            await message_or_callback.answer(result, reply_markup=main_menu(user_id))
+        await message_or_callback.answer(result, reply_markup=main_menu(user_id))
 
     if callback:
         await callback.answer()
-
-    # Очищаем промежуточные сообщения
-    await cleanup_state_messages(chat_id, step_msgs)
     await state.clear()
 
 # ============================================================
@@ -852,8 +923,7 @@ async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSM
     user_id = callback.from_user.id
     if not await ensure_subscribed(callback.message, user_id, callback):
         return
-    msg = await callback.message.edit_text("Введите промокод:", reply_markup=back_menu())
-    await state.update_data(promo_msg=msg.message_id)
+    await callback.message.answer("Введите промокод:", reply_markup=back_menu())
     await state.set_state(PromoState.waiting_code)
     await callback.answer()
 
@@ -864,17 +934,6 @@ async def promo_code_handler(message: aiogram_types.Message, state: FSMContext):
         await state.clear()
         return
     code = message.text.strip()
-    try:
-        await message.delete()
-    except:
-        pass
-    data = await state.get_data()
-    promo_msg = data.get("promo_msg")
-    if promo_msg:
-        try:
-            await bot.delete_message(message.chat.id, promo_msg)
-        except:
-            pass
     result, typ = use_promo(user_id, code)
     if result is None:
         if typ == "invalid":
@@ -916,10 +975,6 @@ async def handle_text(message: aiogram_types.Message):
     if c.fetchone():
         conn.close()
         result, typ = use_promo(user_id, code)
-        try:
-            await message.delete()
-        except:
-            pass
         if result is None:
             if typ == "invalid":
                 await message.answer("❌ Промокод не найден.", reply_markup=main_menu(user_id))
@@ -1024,10 +1079,7 @@ async def set_color_callback(callback: aiogram_types.CallbackQuery):
 @dp.callback_query(F.data == "back")
 async def back_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    data = await state.get_data()
-    step_msgs = data.get("step_messages", [])
     await state.clear()
-    await cleanup_state_messages(callback.message.chat.id, step_msgs)
     if not await check_subscription(user_id):
         await callback.message.edit_text(
             f"❌ Вы не подписаны на {REQUIRED_CHANNEL}",
@@ -1046,10 +1098,6 @@ async def admin_command(message: aiogram_types.Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("⛔ Нет доступа")
         return
-    try:
-        await message.delete()
-    except:
-        pass
     await message.answer("👑 АДМИН ПАНЕЛЬ", reply_markup=admin_menu())
 
 @dp.callback_query(F.data == "admin_stats")
@@ -1081,18 +1129,10 @@ async def broadcast_text(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     if message.text == "/cancel":
-        try:
-            await message.delete()
-        except:
-            pass
         await message.answer("❌ Отменено", reply_markup=admin_menu())
         await state.clear()
         return
     text = message.text
-    try:
-        await message.delete()
-    except:
-        pass
     users = get_all_user_ids()
     sent = 0
     status = await message.answer(f"📢 Рассылка... 0/{len(users)}")
@@ -1114,8 +1154,7 @@ async def admin_create_promo_callback(callback: aiogram_types.CallbackQuery, sta
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    msg = await callback.message.edit_text("Введите код промокода (без пробелов):", reply_markup=back_menu())
-    await state.update_data(admin_msgs=[msg.message_id])
+    await callback.message.edit_text("Введите код промокода (без пробелов):", reply_markup=back_menu())
     await state.set_state(CreatePromoState.waiting_code)
     await callback.answer()
 
@@ -1124,19 +1163,11 @@ async def create_promo_code(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     code = message.text.strip()
-    try:
-        await message.delete()
-    except:
-        pass
     if ' ' in code or not code:
         await message.answer("❌ Код не должен содержать пробелов. Попробуйте ещё раз:")
         return
-    data = await state.get_data()
-    admin_msgs = data.get("admin_msgs", [])
-    await state.update_data(code=code, admin_msgs=admin_msgs)
-    msg = await message.answer("Выберите тип промокода:", reply_markup=promo_type_keyboard())
-    admin_msgs.append(msg.message_id)
-    await state.update_data(admin_msgs=admin_msgs)
+    await state.update_data(code=code)
+    await message.answer("Выберите тип промокода:", reply_markup=promo_type_keyboard())
     await state.set_state(CreatePromoState.waiting_type)
 
 @dp.callback_query(F.data == "promo_type_vip")
@@ -1164,10 +1195,6 @@ async def create_promo_bonus(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     text = message.text.strip()
-    try:
-        await message.delete()
-    except:
-        pass
     if text in ['/cancel', '/admin']:
         await message.answer("❌ Отменено", reply_markup=admin_menu())
         await state.clear()
@@ -1193,10 +1220,6 @@ async def create_promo_uses(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     text = message.text.strip()
-    try:
-        await message.delete()
-    except:
-        pass
     if text in ['/cancel', '/admin']:
         await message.answer("❌ Отменено", reply_markup=admin_menu())
         await state.clear()
@@ -1286,10 +1309,6 @@ async def add_blacklist_handler(message: aiogram_types.Message, state: FSMContex
     if message.from_user.id != ADMIN_ID:
         return
     target = message.text.strip().lstrip('@')
-    try:
-        await message.delete()
-    except:
-        pass
     if not target:
         await message.answer("❌ Неверный username", reply_markup=back_menu())
         return
@@ -1307,10 +1326,6 @@ async def remove_blacklist_handler(message: aiogram_types.Message, state: FSMCon
     if message.from_user.id != ADMIN_ID:
         return
     target = message.text.strip().lstrip('@')
-    try:
-        await message.delete()
-    except:
-        pass
     if not target:
         await message.answer("❌ Неверный username")
         return
@@ -1349,18 +1364,10 @@ async def set_ad_text(message: aiogram_types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     if message.text == "/cancel":
-        try:
-            await message.delete()
-        except:
-            pass
         await message.answer("❌ Отменено", reply_markup=admin_menu())
         await state.clear()
         return
     set_setting('ad_text', message.text)
-    try:
-        await message.delete()
-    except:
-        pass
     await message.answer("✅ Рекламный текст обновлён!", reply_markup=admin_menu())
     await state.clear()
 
