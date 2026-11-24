@@ -15,7 +15,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramBadRequest
 
-BOT_NAME = "MAFIA SNOS"
+BOT_NAME = "SNOS"
 BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ НА НОВЫЙ!
 # ТУТ ДОБАВЛЕН ВТОРОЙ АДМИН (список)
 ADMIN_IDS = [8653940355, 6380627741] 
