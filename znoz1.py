@@ -12,6 +12,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import TelegramBadRequest
 
 BOT_NAME = "MAFIA SNOS"
 BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ НА НОВЫЙ!
@@ -21,7 +22,7 @@ PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
 
 # ============================================================
-#  ЛИМИТЫ (Обновлено: 50 запросов для обычных)
+#  ЛИМИТЫ (50 запросов для обычных)
 # ============================================================
 DAILY_LIMIT_NORMAL = 50
 DAILY_LIMIT_VIP = float('inf')
@@ -428,7 +429,6 @@ def main_menu(user_id):
     color = get_button_color(user_id)
     emoji = COLOR_MAP.get(color, '🔵')
     
-    # Раскладка как на скриншоте
     buttons = [
         [InlineKeyboardButton(text="🚀 Начать", callback_data="attack")],
         [
@@ -444,7 +444,6 @@ def main_menu(user_id):
         ]
     ]
     
-    # Оставляем изменение цвета для VIP
     if is_vip(user_id):
         buttons[3].append(InlineKeyboardButton(text=f"{emoji} Цвет", callback_data="change_color"))
         
@@ -506,6 +505,17 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 # ============================================================
+#  ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК КНОПОК
+# ============================================================
+@dp.errors()
+async def errors_handler(event: aiogram_types.ErrorEvent):
+    exception = event.exception
+    if isinstance(exception, TelegramBadRequest) and "message is not modified" in str(exception):
+        return True
+    print(f"Ошибка в обработчике: {exception}")
+    return True
+
+# ============================================================
 #  СТАРТ
 # ============================================================
 @dp.message(CommandStart())
@@ -527,24 +537,20 @@ async def start_command(message: aiogram_types.Message, state: FSMContext):
 
     text = (
         f"Убираем нарушения и защищаем аккаунты в Telegram, TikTok и на сайтах.\n\n"
-        f"Выбери нужный раздел — всё в кнопках ниже.\n\n"
         f"⚠️ Обычные пользователи: {DAILY_LIMIT_NORMAL} запросов в день.\n"
         f"💎 VIP: безлимит."
     )
     
-    # ВАЖНО: Замените ссылку ниже на вашу картинку (или используйте file_id)
-    # Чтобы получить file_id, отправьте картинку боту и посмотрите лог, либо используйте URL.
-    banner_url = "https://i.imgur.com/your_image.jpg" 
-    
+    await message.answer(text, reply_markup=main_menu(user_id))
+
+# Обработчик для старых кнопок "Начать" из истории
+@dp.message(F.text == "🚀 Начать")
+async def old_start_button(message: aiogram_types.Message):
     try:
-        await message.answer_photo(
-            photo=banner_url,
-            caption=text,
-            reply_markup=main_menu(user_id)
-        )
-    except Exception:
-        # Если картинка не загрузилась, отправит просто текст
-        await message.answer(text, reply_markup=main_menu(user_id))
+        await message.delete()
+    except:
+        pass
+    await message.answer("🎯 Введите username цели (без @):", reply_markup=back_menu())
 
 @dp.callback_query(F.data == "check_sub")
 async def check_sub_callback(callback: aiogram_types.CallbackQuery):
