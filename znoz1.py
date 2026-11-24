@@ -17,7 +17,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 BOT_NAME = "SNOS"
 BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ!
-ADMIN_ID = 8653940355
+ADMIN_ID = 8653940355 , 6380627741
 REQUIRED_CHANNEL = "@manyapollice"
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
