@@ -3,6 +3,7 @@ import random
 import sqlite3
 import aiohttp
 import time
+import faker
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types as aiogram_types
@@ -15,13 +16,20 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramBadRequest
 
-BOT_NAME = "SNOS"
-BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ НА НОВЫЙ!
-# ТУТ ДОБАВЛЕН ВТОРОЙ АДМИН (список)
+# Инициализация фейкера
+fake = faker.Faker('ru_RU')
+
+BOT_NAME = "MOON SNOS"
+BOT_TOKEN = "9293933717:AAGUSKkDzKDqre0TejgzU2hRvOVOEpkIChY"  # ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ!
 ADMIN_IDS = [8653940355, 6380627741] 
 REQUIRED_CHANNEL = "@manyapollice"
 PROTECTED_BOT = "Shakalbekbot"
 DB_NAME = "shakal.db"
+
+# Цены
+PRICE_DDOS = 10
+PRICE_OSINT = 20
+VIP_PRICES = {"week": 70, "month": 100, "forever": 150}
 
 DAILY_LIMIT_NORMAL = 50
 DAILY_LIMIT_VIP = float('inf')
@@ -59,7 +67,10 @@ def init_db():
         daily_attacks INTEGER DEFAULT 0,
         last_attack_date TEXT,
         button_color TEXT DEFAULT 'blue',
-        ghost_mode INTEGER DEFAULT 0
+        ghost_mode INTEGER DEFAULT 0,
+        balance INTEGER DEFAULT 0,
+        ddos_requests INTEGER DEFAULT 0,
+        osint_requests INTEGER DEFAULT 0
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS targets (
         user_id INTEGER,
@@ -405,6 +416,10 @@ class BlacklistState(StatesGroup):
 class AdState(StatesGroup):
     waiting_text = State()
 
+class EventState(StatesGroup):
+    waiting_money_amount = State()
+    waiting_attacks_amount = State()
+
 # ============================================================
 #  ИМИТАЦИИ
 # ============================================================
@@ -419,10 +434,9 @@ async def ddos_bot(target, count):
     return successful, count
 
 # ============================================================
-#  КЛАВИАТУРЫ (ПО 2 В РЯД)
+#  КЛАВИАТУРЫ
 # ============================================================
 def main_menu(user_id):
-    # Формируем сетку 2х2 (по две кнопки в строке)
     buttons = [
         [InlineKeyboardButton(text="Атака", callback_data="attack"), InlineKeyboardButton(text="DDoS", callback_data="ddos")],
         [InlineKeyboardButton(text="OSINT", callback_data="osint_menu"), InlineKeyboardButton(text="Профиль", callback_data="profile")],
@@ -445,7 +459,8 @@ def back_menu():
 
 def osint_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Информация о номере", callback_data="osint_phone"), InlineKeyboardButton(text="Пинг сайта", callback_data="osint_ping")],
+        [InlineKeyboardButton(text="Инфо о номере", callback_data="osint_phone"), InlineKeyboardButton(text="Пинг сайта", callback_data="osint_ping")],
+        [InlineKeyboardButton(text="Генератор личности", callback_data="osint_faker")],
         [InlineKeyboardButton(text="Назад", callback_data="back")]
     ])
 
@@ -453,6 +468,7 @@ def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Статистика", callback_data="admin_stats"), InlineKeyboardButton(text="Рассылка", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="Создать промокод", callback_data="admin_create_promo"), InlineKeyboardButton(text="Промокоды", callback_data="admin_promo_list")],
+        [InlineKeyboardButton(text="Раздача рублей", callback_data="admin_event_money"), InlineKeyboardButton(text="Раздача атак", callback_data="admin_event_attacks")],
         [InlineKeyboardButton(text="Черный список", callback_data="admin_blacklist"), InlineKeyboardButton(text="Настройки", callback_data="admin_settings")],
         [InlineKeyboardButton(text="Назад", callback_data="back")]
     ])
@@ -490,7 +506,7 @@ def count_keyboard():
     row = []
     for c in counts:
         row.append(InlineKeyboardButton(text=str(c), callback_data=f"count_{c}"))
-        if len(row) == 3: # По 3 кнопки в ряд для чисел
+        if len(row) == 3: 
             kb.append(row)
             row = []
     if row: kb.append(row)
@@ -549,128 +565,146 @@ async def check_sub_callback(callback: aiogram_types.CallbackQuery):
     await callback.answer()
 
 # ============================================================
-#  OSINT МОДУЛЬ
-# ============================================================
-@dp.callback_query(F.data == "osint_menu")
-async def osint_menu_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    if not await ensure_subscribed(callback.message, user_id, callback): return
-    
-    text = "<b>OSINT Модуль</b>\n\n<blockquote>Инструменты для анализа открытых данных.</blockquote>"
-    await callback.message.edit_text(text, reply_markup=osint_menu())
-    await callback.answer()
-
-@dp.callback_query(F.data == "osint_phone")
-async def osint_phone_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("<b>Информация о номере</b>\n\n<blockquote>Введите номер телефона (например, +79001234567).</blockquote>", reply_markup=back_menu())
-    await state.set_state(OsintState.waiting_phone)
-    await callback.answer()
-
-@dp.message(OsintState.waiting_phone)
-async def osint_phone_process(message: aiogram_types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    phone = clean_number_input(message.text)
-    
-    if len(phone) < 10:
-        await message.answer("Неверный формат номера. Введите номер еще раз:", reply_markup=back_menu())
-        return
-        
-    msg = await message.answer("<i>Анализ базы операторов...</i>")
-    
-    operator = "Неизвестный оператор"
-    region = "Россия"
-    
-    if phone.startswith('79') or phone.startswith('89'):
-        if phone[1:4] in ['900', '901', '902', '903', '904', '905', '906', '908', '909', '950', '951', '952', '953', '960', '961', '962', '963', '964', '965', '966', '967', '968', '969', '980', '981', '982', '983', '984', '985', '986', '987', '988', '989']:
-            operator = "Билайн / Мегафон / МТС"
-        elif phone[1:4] in ['910', '911', '912', '913', '914', '915', '916', '917', '918', '919', '920', '921', '922', '923', '924', '925', '926', '927', '928', '929', '930', '931', '932', '933', '934', '936', '937', '938', '939', '999']:
-            operator = "МТС / Билайн / Теле2"
-        else:
-            operator = "Мобильный оператор"
-    
-    result = (
-        f"<b>Отчет по номеру:</b> <code>+{phone}</code>\n\n"
-        f"<blockquote>"
-        f"Страна: {region}\n"
-        f"Оператор: {operator}\n"
-        f"Статус: Активен (база сотовых сетей)"
-        f"</blockquote>"
-    )
-    
-    await msg.edit_text(result, reply_markup=main_menu(user_id))
-    await state.clear()
-
-@dp.callback_query(F.data == "osint_ping")
-async def osint_ping_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("<b>Пинг сайта</b>\n\n<blockquote>Введите URL (например, google.com).</blockquote>", reply_markup=back_menu())
-    await state.set_state(OsintState.waiting_url)
-    await callback.answer()
-
-@dp.message(OsintState.waiting_url)
-async def osint_ping_process(message: aiogram_types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    url = message.text.strip()
-    if not url.startswith("http"): url = "https://" + url
-        
-    msg = await message.answer("<i>Выполняется запрос...</i>")
-    
-    start_time = time.time()
-    status_code = "Нет ответа"
-    ping_time = 0
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=5) as response:
-                status_code = response.status
-                ping_time = round((time.time() - start_time) * 1000, 2)
-    except Exception as e:
-        status_code = "Ошибка подключения"
-    
-    if status_code == 200:
-        status_text = "Сайт доступен"
-    elif status_code == "Ошибка подключения":
-        status_text = "Сайт недоступен (не отвечает)"
-    else:
-        status_text = f"Ошибка сервера ({status_code})"
-
-    result = (
-        f"<b>Статус сайта:</b> <code>{url}</code>\n\n"
-        f"<blockquote>"
-        f"Статус: {status_text}\n"
-        f"Код ответа: {status_code}\n"
-        f"Время ответа: {ping_time} мс"
-        f"</blockquote>"
-    )
-    
-    await msg.edit_text(result, reply_markup=main_menu(user_id))
-    await state.clear()
-
-# ============================================================
-#  МАГАЗИН И ПРОФИЛЬ
+#  МАГАЗИН (БЕЗ ПОПОЛНЕНИЯ ЗВЕЗДАМИ)
 # ============================================================
 @dp.callback_query(F.data == "shop")
 async def shop_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
     if not await ensure_subscribed(callback.message, user_id, callback): return
     
+    row = get_user(user_id)
+    balance = row[11] if row else 0
+    ddos_reqs = row[12] if row else 0
+    osint_reqs = row[13] if row else 0
+    
     text = (
-        "<b>Магазин VIP-подписок</b>\n\n"
-        "<blockquote>"
-        "Неделя — 70 руб.\n"
-        "Месяц — 100 руб.\n"
-        "Навсегда — 150 руб.\n\n"
-        "Для покупки напишите менеджеру: @snospve"
-        "</blockquote>"
+        f"<b>Магазин</b>\n\n"
+        f"<blockquote>"
+        f"Ваш баланс: {balance} руб.\n"
+        f"Слоты DDoS: {ddos_reqs} шт.\n"
+        f"Слоты OSINT: {osint_reqs} шт.\n"
+        f"</blockquote>\n"
+        f"<b>Цены:</b>\n"
+        f"<blockquote>"
+        f"VIP Неделя: {VIP_PRICES['week']} руб.\n"
+        f"VIP Месяц: {VIP_PRICES['month']} руб.\n"
+        f"VIP Навсегда: {VIP_PRICES['forever']} руб.\n"
+        f"DDoS запрос: {PRICE_DDOS} руб/шт.\n"
+        f"OSINT запрос: {PRICE_OSINT} руб/шт.\n"
+        f"</blockquote>\n"
+        f"<b>Пополнение:</b>\n"
+        f"<blockquote>Для пополнения баланса напишите @snospve</blockquote>"
     )
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Написать @snospve", url="https://t.me/snospve")],
+        [InlineKeyboardButton(text="Купить VIP", callback_data="buy_vip_menu"), InlineKeyboardButton(text="Купить DDoS", callback_data="buy_ddos")],
+        [InlineKeyboardButton(text="Купить OSINT", callback_data="buy_osint"), InlineKeyboardButton(text="Пополнить @snospve", url="https://t.me/snospve")],
         [InlineKeyboardButton(text="Назад", callback_data="back")]
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
+@dp.callback_query(F.data == "buy_vip_menu")
+async def buy_vip_menu_callback(callback: aiogram_types.CallbackQuery):
+    user_id = callback.from_user.id
+    row = get_user(user_id)
+    balance = row[11] if row else 0
+    
+    text = (
+        f"<b>Покупка VIP</b>\n\n"
+        f"<blockquote>Ваш баланс: {balance} руб.\n\n"
+        f"Неделя: {VIP_PRICES['week']} руб.\n"
+        f"Месяц: {VIP_PRICES['month']} руб.\n"
+        f"Навсегда: {VIP_PRICES['forever']} руб.</blockquote>"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"Неделя ({VIP_PRICES['week']}р)", callback_data="buy_vip_week")],
+        [InlineKeyboardButton(text=f"Месяц ({VIP_PRICES['month']}р)", callback_data="buy_vip_month")],
+        [InlineKeyboardButton(text=f"Навсегда ({VIP_PRICES['forever']}р)", callback_data="buy_vip_forever")],
+        [InlineKeyboardButton(text="Назад", callback_data="shop")]
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("buy_vip_"))
+async def buy_vip_process(callback: aiogram_types.CallbackQuery):
+    user_id = callback.from_user.id
+    choice = callback.data.split("_")[2]
+    price = VIP_PRICES[choice]
+    
+    row = get_user(user_id)
+    balance = row[11] if row else 0
+    
+    if balance < price:
+        await callback.answer(f"Недостаточно средств. Нужно {price} руб.", show_alert=True)
+        return
+        
+    update_user_field(user_id, "balance", balance - price)
+    
+    if choice == "week":
+        set_vip(user_id, 7)
+    elif choice == "month":
+        set_vip(user_id, 30)
+    elif choice == "forever":
+        set_vip(user_id, -1)
+        
+    await callback.message.edit_text(
+        f"<b>VIP успешно активирован!</b>\n\n"
+        f"<blockquote>Списано: {price} руб.\n"
+        f"Остаток: {balance - price} руб.</blockquote>",
+        reply_markup=main_menu(user_id)
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "buy_ddos")
+async def buy_ddos_callback(callback: aiogram_types.CallbackQuery):
+    user_id = callback.from_user.id
+    row = get_user(user_id)
+    balance = row[11] if row else 0
+    
+    if balance < PRICE_DDOS:
+        await callback.answer(f"Недостаточно средств. Нужно {PRICE_DDOS} руб.", show_alert=True)
+        return
+        
+    update_user_field(user_id, "balance", balance - PRICE_DDOS)
+    current_reqs = row[12] if row else 0
+    update_user_field(user_id, "ddos_requests", current_reqs + 1)
+    
+    await callback.message.edit_text(
+        f"<b>Слот DDoS куплен!</b>\n\n"
+        f"<blockquote>Списано: {PRICE_DDOS} руб.\n"
+        f"Всего слотов: {current_reqs + 1}</blockquote>",
+        reply_markup=main_menu(user_id)
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "buy_osint")
+async def buy_osint_callback(callback: aiogram_types.CallbackQuery):
+    user_id = callback.from_user.id
+    row = get_user(user_id)
+    balance = row[11] if row else 0
+    
+    if balance < PRICE_OSINT:
+        await callback.answer(f"Недостаточно средств. Нужно {PRICE_OSINT} руб.", show_alert=True)
+        return
+        
+    update_user_field(user_id, "balance", balance - PRICE_OSINT)
+    current_reqs = row[13] if row else 0
+    update_user_field(user_id, "osint_requests", current_reqs + 1)
+    
+    await callback.message.edit_text(
+        f"<b>Слот OSINT куплен!</b>\n\n"
+        f"<blockquote>Списано: {PRICE_OSINT} руб.\n"
+        f"Всего слотов: {current_reqs + 1}</blockquote>",
+        reply_markup=main_menu(user_id)
+    )
+    await callback.answer()
+
+# ============================================================
+#  ПРОФИЛЬ (С БАЛАНСОМ)
+# ============================================================
 @dp.callback_query(F.data == "profile")
 async def profile_callback(callback: aiogram_types.CallbackQuery):
     user_id = callback.from_user.id
@@ -686,6 +720,9 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
     daily = get_daily_attacks(user_id)
     limit = get_daily_limit(user_id)
     limit_display = "Безлимит" if limit == float('inf') else str(limit)
+    balance = row[11] if row else 0
+    ddos = row[12] if row else 0
+    osint = row[13] if row else 0
     
     text = (
         f"<b>Профиль</b>\n\n"
@@ -693,7 +730,10 @@ async def profile_callback(callback: aiogram_types.CallbackQuery):
         f"ID: <code>{user_id}</code>\n"
         f"Атак: {attacks}\n"
         f"Сегодня: {daily}/{limit_display}\n"
-        f"VIP: {vip_status}"
+        f"VIP: {vip_status}\n\n"
+        f"<b>Баланс: {balance} руб.</b>\n"
+        f"Слоты DDoS: {ddos} шт.\n"
+        f"Слоты OSINT: {osint} шт."
         f"</blockquote>"
     )
     
@@ -882,11 +922,25 @@ async def finish_attack(message_or_callback, state: FSMContext, user_id, callbac
 async def ddos_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     if not await ensure_subscribed(callback.message, user_id, callback): return
-    limit = get_daily_limit(user_id)
-    daily = get_daily_attacks(user_id)
-    if daily >= limit:
-        await callback.answer(f"Дневной лимит ({limit}) исчерпан.", show_alert=True)
+    
+    row = get_user(user_id)
+    ddos_reqs = row[12] if row else 0
+    
+    if ddos_reqs <= 0 and not is_vip(user_id):
+        await callback.message.answer(
+            f"<b>У вас нет слотов для DDoS.</b>\n\n"
+            f"<blockquote>Вы можете купить слот за {PRICE_DDOS} руб. в магазине.\n"
+            f"Или приобрести VIP для безлимита.</blockquote>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="В магазин", callback_data="shop")],
+                [InlineKeyboardButton(text="Назад", callback_data="back")]
+            ])
+        )
+        await callback.answer()
         return
+        
+    if not is_vip(user_id):
+        update_user_field(user_id, "ddos_requests", ddos_reqs - 1)
     
     await callback.message.answer("<b>Введите ссылку или IP цели:</b>", reply_markup=back_menu())
     await state.set_state(DdosState.waiting_target)
@@ -974,7 +1028,152 @@ async def finish_ddos(message_or_callback, state: FSMContext, user_id, callback=
     await state.clear()
 
 # ============================================================
-#  ПРОМОКОДЫ И СТАТИСТИКА (ПОЛЬЗОВАТЕЛЬ)
+#  OSINT МОДУЛЬ
+# ============================================================
+@dp.callback_query(F.data == "osint_menu")
+async def osint_menu_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if not await ensure_subscribed(callback.message, user_id, callback): return
+    
+    row = get_user(user_id)
+    osint_reqs = row[13] if row else 0
+    
+    text = (
+        f"<b>OSINT Модуль</b>\n\n"
+        f"<blockquote>Доступно запросов: {osint_reqs} шт.\n"
+        f"Стоимость запроса: {PRICE_OSINT} руб.</blockquote>"
+    )
+    await callback.message.edit_text(text, reply_markup=osint_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("osint_") & ~F.data.in_({"osint_menu"}))
+async def osint_process_check(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    row = get_user(user_id)
+    osint_reqs = row[13] if row else 0
+    
+    if osint_reqs <= 0 and not is_vip(user_id):
+        await callback.message.answer(
+            f"<b>У вас нет доступных OSINT-запросов.</b>\n\n"
+            f"<blockquote>Купите слот за {PRICE_OSINT} руб. в магазине.</blockquote>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="В магазин", callback_data="shop")],
+                [InlineKeyboardButton(text="Назад", callback_data="back")]
+            ])
+        )
+        await callback.answer()
+        return
+        
+    if not is_vip(user_id):
+        update_user_field(user_id, "osint_requests", osint_reqs - 1)
+        
+    action = callback.data.split("_")[1]
+    if action == "phone":
+        await callback.message.edit_text("<b>Информация о номере</b>\n\n<blockquote>Введите номер телефона (например, +79001234567).</blockquote>", reply_markup=back_menu())
+        await state.set_state(OsintState.waiting_phone)
+    elif action == "ping":
+        await callback.message.edit_text("<b>Пинг сайта</b>\n\n<blockquote>Введите URL (например, google.com).</blockquote>", reply_markup=back_menu())
+        await state.set_state(OsintState.waiting_url)
+    elif action == "faker":
+        await send_faker_data(callback.message, user_id)
+        return
+    await callback.answer()
+
+@dp.message(OsintState.waiting_phone)
+async def osint_phone_process(message: aiogram_types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    phone = clean_number_input(message.text)
+    
+    if len(phone) < 10:
+        await message.answer("Неверный формат номера. Введите номер еще раз:", reply_markup=back_menu())
+        return
+        
+    msg = await message.answer("<i>Анализ базы операторов...</i>")
+    
+    operator = "Неизвестный оператор"
+    region = "Россия"
+    
+    if phone.startswith('79') or phone.startswith('89'):
+        if phone[1:4] in ['900', '901', '902', '903', '904', '905', '906', '908', '909', '950', '951', '952', '953', '960', '961', '962', '963', '964', '965', '966', '967', '968', '969', '980', '981', '982', '983', '984', '985', '986', '987', '988', '989']:
+            operator = "Билайн / Мегафон / МТС"
+        elif phone[1:4] in ['910', '911', '912', '913', '914', '915', '916', '917', '918', '919', '920', '921', '922', '923', '924', '925', '926', '927', '928', '929', '930', '931', '932', '933', '934', '936', '937', '938', '939', '999']:
+            operator = "МТС / Билайн / Теле2"
+        else:
+            operator = "Мобильный оператор"
+    
+    result = (
+        f"<b>Отчет по номеру:</b> <code>+{phone}</code>\n\n"
+        f"<blockquote>"
+        f"Страна: {region}\n"
+        f"Оператор: {operator}\n"
+        f"Статус: Активен (база сотовых сетей)"
+        f"</blockquote>"
+    )
+    
+    await msg.edit_text(result, reply_markup=main_menu(user_id))
+    await state.clear()
+
+@dp.message(OsintState.waiting_url)
+async def osint_ping_process(message: aiogram_types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    url = message.text.strip()
+    if not url.startswith("http"): url = "https://" + url
+        
+    msg = await message.answer("<i>Выполняется запрос...</i>")
+    
+    start_time = time.time()
+    status_code = "Нет ответа"
+    ping_time = 0
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=5) as response:
+                status_code = response.status
+                ping_time = round((time.time() - start_time) * 1000, 2)
+    except Exception as e:
+        status_code = "Ошибка подключения"
+    
+    if status_code == 200:
+        status_text = "Сайт доступен"
+    elif status_code == "Ошибка подключения":
+        status_text = "Сайт недоступен (не отвечает)"
+    else:
+        status_text = f"Ошибка сервера ({status_code})"
+
+    result = (
+        f"<b>Статус сайта:</b> <code>{url}</code>\n\n"
+        f"<blockquote>"
+        f"Статус: {status_text}\n"
+        f"Код ответа: {status_code}\n"
+        f"Время ответа: {ping_time} мс"
+        f"</blockquote>"
+    )
+    
+    await msg.edit_text(result, reply_markup=main_menu(user_id))
+    await state.clear()
+
+async def send_faker_data(message, user_id):
+    name = fake.name()
+    phone = fake.phone_number()
+    email = fake.email()
+    address = fake.address().replace("\n", ", ")
+    passport = f"{random.randint(1000, 9999)} {random.randint(100000, 999999)}"
+    
+    text = (
+        f"<b>Генератор фейковой личности</b>\n\n"
+        f"<blockquote>"
+        f"Имя: {name}\n"
+        f"Телефон: {phone}\n"
+        f"Email: {email}\n"
+        f"Адрес: {address}\n"
+        f"Паспорт: {passport}"
+        f"</blockquote>\n"
+        f"<i>* Данные сгенерированы случайно и не принадлежат реальным людям.</i>"
+    )
+    await message.answer(text, reply_markup=main_menu(user_id))
+
+# ============================================================
+#  ПРОМОКОДЫ И СТАТИСТИКА
 # ============================================================
 @dp.callback_query(F.data == "enter_promo")
 async def enter_promo_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
@@ -1095,7 +1294,7 @@ async def back_callback(callback: aiogram_types.CallbackQuery, state: FSMContext
     await callback.answer()
 
 # ============================================================
-#  АДМИН-ПАНЕЛЬ (Обновлено под список ADMIN_IDS)
+#  АДМИН-ПАНЕЛЬ (РАЗДАЧА С ВВОДОМ СУММЫ)
 # ============================================================
 @dp.message(Command("admin"))
 async def admin_command(message: aiogram_types.Message):
@@ -1119,6 +1318,84 @@ async def admin_stats_callback(callback: aiogram_types.CallbackQuery):
     text = f"<b>Статистика</b>\n\n<blockquote>Пользователей: {len(users)}\nПромокодов: {len(promos)}\n\nТоп-10:\n{top}</blockquote>"
     await callback.message.edit_text(text, reply_markup=back_menu())
     await callback.answer()
+
+@dp.callback_query(F.data == "admin_event_money")
+async def admin_event_money_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.message.edit_text("<b>Введите сумму в рублях для раздачи всем пользователям:</b>", reply_markup=back_menu())
+    await state.set_state(EventState.waiting_money_amount)
+    await callback.answer()
+
+@dp.message(EventState.waiting_money_amount)
+async def event_money_process(message: aiogram_types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    cleaned = clean_number_input(message.text)
+    if not cleaned:
+        await message.answer("Введите положительное число:")
+        return
+    
+    amount = int(cleaned)
+    users = get_all_user_ids()
+    count = 0
+    
+    status = await message.answer(f"Раздача... 0/{len(users)}")
+    
+    for i, uid in enumerate(users, 1):
+        row = get_user(uid)
+        if row:
+            update_user_field(uid, "balance", row[11] + amount)
+            try:
+                await bot.send_message(uid, f"<b>Ивент!</b>\n\n<blockquote>Вам начислено {amount} руб. на баланс!</blockquote>")
+            except:
+                pass
+            count += 1
+        
+        if i % 10 == 0:
+            await status.edit_text(f"Раздача... {count}/{len(users)}")
+        await asyncio.sleep(0.05)
+        
+    await status.edit_text(f"<b>Раздача завершена.</b>\n\n<blockquote>Начислено {amount} руб. {count} пользователям.</blockquote>", reply_markup=admin_menu())
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_event_attacks")
+async def admin_event_attacks_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет доступа.", show_alert=True)
+        return
+    await callback.message.edit_text("<b>Введите количество атак для раздачи всем пользователям:</b>", reply_markup=back_menu())
+    await state.set_state(EventState.waiting_attacks_amount)
+    await callback.answer()
+
+@dp.message(EventState.waiting_attacks_amount)
+async def event_attacks_process(message: aiogram_types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS: return
+    cleaned = clean_number_input(message.text)
+    if not cleaned:
+        await message.answer("Введите положительное число:")
+        return
+    
+    amount = int(cleaned)
+    users = get_all_user_ids()
+    count = 0
+    
+    status = await message.answer(f"Раздача... 0/{len(users)}")
+    
+    for i, uid in enumerate(users, 1):
+        increment_attacks(uid, amount)
+        try:
+            await bot.send_message(uid, f"<b>Ивент!</b>\n\n<blockquote>Вам начислено {amount} атак!</blockquote>")
+        except:
+            pass
+        count += 1
+        
+        if i % 10 == 0:
+            await status.edit_text(f"Раздача... {count}/{len(users)}")
+        await asyncio.sleep(0.05)
+        
+    await status.edit_text(f"<b>Раздача завершена.</b>\n\n<blockquote>Начислено {amount} атак {count} пользователям.</blockquote>", reply_markup=admin_menu())
+    await state.clear()
 
 @dp.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast_callback(callback: aiogram_types.CallbackQuery, state: FSMContext):
